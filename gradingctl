@@ -295,7 +295,8 @@ function grade_lab() {
                 fi
                 ;;
             user)
-                USER_NAME=$(echo "$criterion" | jq -r '.name')
+                USER_NAME="$KEY"
+#                USER_NAME=$(echo "$criterion" | jq -r '.name')
                 if id "$USER_NAME" &>/dev/null; then
                     DATA["$KEY"]="exists"
                 else
