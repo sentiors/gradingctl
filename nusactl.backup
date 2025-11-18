@@ -1,0 +1,39 @@
+#!/bin/bash
+
+SERVER_URL="http://172.20.4.2:5000"
+
+function login() {
+    echo -n "Username: "
+    read username
+    echo -n "Password: "
+    read -s password
+    echo
+    TOKEN=$(curl -s -X POST -d "{\"username\": \"$username\", \"password\": \"$password\"}" $SERVER_URL/login | jq -r '.token')
+    if [[ $TOKEN == "null" ]]; then
+        echo "Login failed"
+        exit 1
+    else
+        echo $TOKEN > ~/.nusactl_token
+        echo "Login successful"
+    fi
+}
+
+function start_lab() {
+    TOKEN=$(cat ~/.nusactl_token)
+    LAB_ID=$1
+    curl -s -X POST -H "Authorization: Bearer $TOKEN" -d "{\"lab_id\": \"$LAB_ID\"}" $SERVER_URL/start-lab
+}
+
+function grade_lab() {
+    TOKEN=$(cat ~/.nusactl_token)
+    LAB_ID=$1
+    RESULTS=$2
+    curl -s -X POST -H "Authorization: Bearer $TOKEN" -d "{\"lab_id\": \"$LAB_ID\", \"results\": $RESULTS}" $SERVER_URL/grade-lab
+}
+
+case $1 in
+    login) login ;;
+    start) start_lab $2 ;;
+    grade) grade_lab $2 $3 ;;
+    *) echo "Usage: nusactl {login|start|grade}" ;;
+esac
