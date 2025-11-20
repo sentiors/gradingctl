@@ -302,6 +302,7 @@ function grade_lab() {
                 else
                     DATA["$KEY"]="Error: User not found"
                 fi
+                #echo "[DEBUG] User $KEY value: ${DATA[$KEY]}"
                 ;;
             group)
                 GROUP_NAME=$(echo "$criterion" | jq -r '.name')
@@ -354,22 +355,61 @@ function print_grading_result() {
     LAB_ID=$1
     RESPONSE=$2
 
-    SCORE=$(echo "$RESPONSE" | jq -r '.score')
-    DURATION=$(echo "$RESPONSE" | jq '.duration / 60 | ceil')
-    FEEDBACK=$(echo "$RESPONSE" | jq -c '.feedback[]' 2>/dev/null || echo "")
+    SCORE=$(echo "$RESPONSE" | jq -r '.score // 0')
+#    DURATION=$(echo "$RESPONSE" | jq '.duration // 0 / 60 | ceil')
+    DURATION=$(echo "$RESPONSE" | jq -r '.duration // 0' | awk '{printf("%d\n", ($1+59)/60)}')
+#    FEEDBACK=$(echo "$RESPONSE" | jq -c '.feedback[]' 2>/dev/null || echo "")
+    FEEDBACK=$(echo "$RESPONSE" | jq -c '.feedback // []')
+    LOG_PATH=$(echo "$RESPONSE" | jq -r '.log_path // ""')
 
     echo -e "${NC}[-] Grading lab -> $LAB_ID${NC}"
 
-    if [[ -z "$FEEDBACK" ]]; then
+    if [[ "$FEEDBACK" == "[]" ]]; then
         echo -e "${GREEN}    => All tasks completed successfully [✓]${NC}"
     else
-        local i=1
-        while IFS= read -r feedback; do
-            echo -e "${RED}    => case $i - $feedback [x]${NC}"
-            ((i++))
-        done < <(echo "$FEEDBACK" | jq -r '.')
-        echo -e "${RED}[x] Oh no! You didn't complete all the tasks yet${NC}"
+         local i=1
+         echo "$FEEDBACK" | jq -r '.[]' | while IFS= read -r feedback_msg; do
+             echo -e "${RED}    => case $i - $feedback_msg [x]${NC}"
+             ((i++))
+         done
+
+#         for feedback_msg in $(echo "$FEEDBACK" | jq -r '.[]'); do
+#             echo -e "${RED}    => case $i - $feedback_msg [x]${NC}"
+#             ((i++))
+#          done
+
+
+#         for feedback_msg in $(echo "$FEEDBACK" | jq -r '.[]'); do
+#             echo -e "${RED}    => case $i - $feedback_msg [x]${NC}"
+#             ((i++))
+#         done
+    echo -e "${RED}[x] Oh no! You didn't complete all the tasks yet${NC}"
+#        local i=1
+#        while IFS= read -r feedback; do
+#            echo -e "${RED}    => case $i - $feedback [x]${NC}"
+#            ((i++))
+#        done < <(echo "$FEEDBACK" | jq -r '.')
+#        echo -e "${RED}[x] Oh no! You didn't complete all the tasks yet${NC}"
     fi
+
+    #echo "[DEBUG FEEDBACK RAW] $FEEDBACK"1~echo "[DEBUG FEEDBACK RAW] $FEEDBACK"
+
+    # print log hint only if available
+     if [[ "$FEEDBACK" != "[]" ]]; then
+         if [[ -n "$LOG_PATH" && "$LOG_PATH" != "null" ]]; then
+             echo -e "${YELLOW}[!] Hint: You may check gradingctl fetch-log $LAB_ID${NC}"
+         else
+             echo -e "${YELLOW}[!] You may check gradingctl fetch-log $LAB_ID${NC}"
+         fi
+     fi
+
+#    if [[ -n "$LOG_PATH" && "$LOG_PATH" != "null" ]]; then
+#        echo -e "${YELLOW}[!] Hint: You may check gradingctl fetch-log $LAB_ID${NC}"
+#    else
+#        echo -e "${YELLOW}[!] You may check gradingctl fetch-log $LAB_ID${NC}"
+#    fi
+
+#    echo -e "${YELLOW}[!] You may check $LOG_PATH"
 
     echo -e "${NC}[-] Time -> $DURATION minutes"
 
@@ -377,7 +417,7 @@ function print_grading_result() {
     if [[ "$SCORE" == "100" ]]; then
         echo -e "${GREEN}[✓] Congratulations! You've completed the task!${NC}"
     else
-        echo -e "${YELLOW}[✓] Don't worry, we keep your higher score${NC}"
+        echo -e "${GREEN}[✓] Don't worry, we keep your higher score${NC}"
     fi
 }
 
@@ -422,6 +462,15 @@ function logout() {
     fi
 }
 
+function fetch_log() {
+    TOKEN=$(cat ~/.nusactl_token)
+    LAB_ID=$1
+    SERVER_URL="10.10.10.12:5000"
+    RESPONSE=$(curl -s -H "Authorization: Bearer $TOKEN" "$SERVER_URL/get-log?lab_id=$LAB_ID")
+    LOG_CONTENT=$(echo "$RESPONSE" | jq -r '.content // .error')
+    echo "$LOG_CONTENT"
+}
+
 function help() {
     echo -e "${BLUE}Usage: gradingctl {command} [options]${NC}"
     echo -e "${BLUE}Commands:${NC}"
@@ -445,7 +494,8 @@ case $1 in
     grade) grade_lab $2 ;;
     finish) finish $2 ;;
     logout) logout ;;
+    fetch-log) fetch_log $2 ;;
     list-labs) list_labs ;;
     -h|--help) help ;;
-    *) echo "Usage: gradingctl {login|register|start|grade|finish|logout|list-labs|-h|--help}" ;;
+    *) echo "Usage: gradingctl {login|register|start|grade|finish|logout|fetch-log|list-labs|-h|--help}" ;;
 esac
