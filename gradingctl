@@ -11,17 +11,21 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 function register() {
+    echo -n "Nama: "
+    read name
     echo -n "Username: "
     read username
     echo -n "Password: "
     read -s password
     echo
-    echo -n "Class Name: "
+    echo -n "Grup: "
+    read group_name
+    echo -n "Kelas: "
     read class_name
 
     RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" \
-    -d "{\"username\": \"$username\", \"password\": \"$password\", \"class_name\": \"$class_name\"}" \
-    $SERVER_URL/register)
+        -d "{\"username\": \"$username\", \"password\": \"$password\", \"name\": \"$name\", \"class_name\": \"$class_name\", \"group_name\": \"$group_name\"}" \
+        $SERVER_URL/register)
 
     MESSAGE=$(echo "$RESPONSE" | jq -r '.message')
     ERROR=$(echo "$RESPONSE" | jq -r '.error')
@@ -355,65 +359,44 @@ function print_grading_result() {
     LAB_ID=$1
     RESPONSE=$2
 
-    SCORE=$(echo "$RESPONSE" | jq -r '.score // 0')
-#    DURATION=$(echo "$RESPONSE" | jq '.duration // 0 / 60 | ceil')
-    DURATION=$(echo "$RESPONSE" | jq -r '.duration // 0' | awk '{printf("%d\n", ($1+59)/60)}')
-#    FEEDBACK=$(echo "$RESPONSE" | jq -c '.feedback[]' 2>/dev/null || echo "")
+    LOG_TXT_FILE="/var/log/gradingctl/labs/${LAB_ID}.log"
+    mkdir -p "/var/log/gradingctl/labs"
+    echo -n "" > "$LOG_TXT_FILE"
+
     FEEDBACK=$(echo "$RESPONSE" | jq -c '.feedback // []')
+    SCORE=$(echo "$RESPONSE" | jq -r '.score // 0')
+    DURATION=$(echo "$RESPONSE" | jq -r '.duration // 0' | awk '{printf("%d\n", ($1+59)/60)}')
     LOG_PATH=$(echo "$RESPONSE" | jq -r '.log_path // ""')
+
+    # Write failed case log
+    i=1
+    echo "$FEEDBACK" | jq -r '.[]' | while IFS= read -r feedback_msg; do
+        NOW=$(date '+%Y-%m-%d %H:%M:%S')
+        echo "[$NOW] CASE: ${feedback_msg%: Failed} | ERROR: Failed" >> "$LOG_TXT_FILE"
+        ((i++))
+    done
 
     echo -e "${NC}[-] Grading lab -> $LAB_ID${NC}"
 
-    if [[ "$FEEDBACK" == "[]" ]]; then
+    # Display result logic
+    if [[ "$FEEDBACK" == "[]" && "$SCORE" -gt 0 ]]; then
         echo -e "${GREEN}    => All tasks completed successfully [✓]${NC}"
     else
-         local i=1
-         echo "$FEEDBACK" | jq -r '.[]' | while IFS= read -r feedback_msg; do
-             echo -e "${RED}    => case $i - $feedback_msg [x]${NC}"
-             ((i++))
-         done
+        local i=1
+        echo "$FEEDBACK" | jq -r '.[]' | while IFS= read -r feedback_msg; do
+            echo -e "${RED}    => case $i - $feedback_msg [x]${NC}"
+            ((i++))
+        done
+        echo -e "${RED}[x] Oh no! You didn't complete all the tasks yet${NC}"
 
-#         for feedback_msg in $(echo "$FEEDBACK" | jq -r '.[]'); do
-#             echo -e "${RED}    => case $i - $feedback_msg [x]${NC}"
-#             ((i++))
-#          done
-
-
-#         for feedback_msg in $(echo "$FEEDBACK" | jq -r '.[]'); do
-#             echo -e "${RED}    => case $i - $feedback_msg [x]${NC}"
-#             ((i++))
-#         done
-    echo -e "${RED}[x] Oh no! You didn't complete all the tasks yet${NC}"
-#        local i=1
-#        while IFS= read -r feedback; do
-#            echo -e "${RED}    => case $i - $feedback [x]${NC}"
-#            ((i++))
-#        done < <(echo "$FEEDBACK" | jq -r '.')
-#        echo -e "${RED}[x] Oh no! You didn't complete all the tasks yet${NC}"
+        LOG_JSON_FILE="/var/log/gradingctl/labs/${LAB_ID}.log"
+        echo -e "${YELLOW}[!] Hint: You may check gradingctl fetch-log $LAB_ID${NC}"
+        echo -e "${YELLOW}[!] Or open the log file at: $LOG_JSON_FILE${NC}"
     fi
 
-    #echo "[DEBUG FEEDBACK RAW] $FEEDBACK"1~echo "[DEBUG FEEDBACK RAW] $FEEDBACK"
-
-    # print log hint only if available
-     if [[ "$FEEDBACK" != "[]" ]]; then
-         if [[ -n "$LOG_PATH" && "$LOG_PATH" != "null" ]]; then
-             echo -e "${YELLOW}[!] Hint: You may check gradingctl fetch-log $LAB_ID${NC}"
-         else
-             echo -e "${YELLOW}[!] You may check gradingctl fetch-log $LAB_ID${NC}"
-         fi
-     fi
-
-#    if [[ -n "$LOG_PATH" && "$LOG_PATH" != "null" ]]; then
-#        echo -e "${YELLOW}[!] Hint: You may check gradingctl fetch-log $LAB_ID${NC}"
-#    else
-#        echo -e "${YELLOW}[!] You may check gradingctl fetch-log $LAB_ID${NC}"
-#    fi
-
-#    echo -e "${YELLOW}[!] You may check $LOG_PATH"
-
     echo -e "${NC}[-] Time -> $DURATION minutes"
-
     echo -e "${NC}[-] Score -> $SCORE${NC}"
+
     if [[ "$SCORE" == "100" ]]; then
         echo -e "${GREEN}[✓] Congratulations! You've completed the task!${NC}"
     else
@@ -463,13 +446,24 @@ function logout() {
 }
 
 function fetch_log() {
-    TOKEN=$(cat ~/.nusactl_token)
     LAB_ID=$1
-    SERVER_URL="10.10.10.12:5000"
-    RESPONSE=$(curl -s -H "Authorization: Bearer $TOKEN" "$SERVER_URL/get-log?lab_id=$LAB_ID")
-    LOG_CONTENT=$(echo "$RESPONSE" | jq -r '.content // .error')
-    echo "$LOG_CONTENT"
+    LOG_FILE="/var/log/gradingctl/labs/${LAB_ID}.log"
+    if [[ -f "$LOG_FILE" ]]; then
+        cat "$LOG_FILE"
+    else
+        echo "Log file not found for lab: $LAB_ID"
+    fi
 }
+
+
+#function fetch_log() {
+#    TOKEN=$(cat ~/.nusactl_token)
+#    LAB_ID=$1
+#    SERVER_URL="10.10.10.12:5000"
+#    RESPONSE=$(curl -s -H "Authorization: Bearer $TOKEN" "$SERVER_URL/get-log?lab_id=$LAB_ID")
+#    LOG_CONTENT=$(echo "$RESPONSE" | jq -r '.content // .error')
+#    echo "$LOG_CONTENT"
+#}
 
 function help() {
     echo -e "${BLUE}Usage: gradingctl {command} [options]${NC}"
