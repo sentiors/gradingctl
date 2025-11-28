@@ -1,6 +1,6 @@
 #!/bin/bash
 
-SERVER_URL="http://10.10.10.12:5000"
+SERVER_URL="http://10.10.10.15:8000"
 ACTIVE_LAB_FILE="/tmp/active_lab"
 
 # Warna ANSI
@@ -359,37 +359,46 @@ function print_grading_result() {
     LAB_ID=$1
     RESPONSE=$2
 
-    LOG_TXT_FILE="/var/log/gradingctl/labs/${LAB_ID}.log"
-    mkdir -p "/var/log/gradingctl/labs"
-    echo -n "" > "$LOG_TXT_FILE"
+    LOG_DIR="/var/log/gradingctl/labs"
+    LOG_TXT_FILE="$LOG_DIR/${LAB_ID}.log"
+
+    # bikin dir + set owner & permission
+    sudo mkdir -p "$LOG_DIR"
+    sudo chown -R "$USER:$USER" /var/log/gradingctl
+    sudo chmod 755 /var/log/gradingctl
+    sudo chmod 755 "$LOG_DIR"
+
+    # kosongkan / buat file log
+    : > "$LOG_TXT_FILE"
 
     FEEDBACK=$(echo "$RESPONSE" | jq -c '.feedback // []')
     SCORE=$(echo "$RESPONSE" | jq -r '.score // 0')
     DURATION=$(echo "$RESPONSE" | jq -r '.duration // 0' | awk '{printf("%d\n", ($1+59)/60)}')
     LOG_PATH=$(echo "$RESPONSE" | jq -r '.log_path // ""')
 
-    # Write failed case log
-    i=1
-    echo "$FEEDBACK" | jq -r '.[]' | while IFS= read -r feedback_msg; do
+    # jadikan array bash
+    mapfile -t FEEDBACK_LINES < <(echo "$FEEDBACK" | jq -r '.[]')
+
+    # tulis ke file log
+    for feedback_msg in "${FEEDBACK_LINES[@]}"; do
         NOW=$(date '+%Y-%m-%d %H:%M:%S')
         echo "[$NOW] CASE: ${feedback_msg%: Failed} | ERROR: Failed" >> "$LOG_TXT_FILE"
-        ((i++))
     done
 
     echo -e "${NC}[-] Grading lab -> $LAB_ID${NC}"
 
-    # Display result logic
+    # tampilkan hasil
     if [[ "$FEEDBACK" == "[]" && "$SCORE" -gt 0 ]]; then
         echo -e "${GREEN}    => All tasks completed successfully [✓]${NC}"
     else
         local i=1
-        echo "$FEEDBACK" | jq -r '.[]' | while IFS= read -r feedback_msg; do
+        for feedback_msg in "${FEEDBACK_LINES[@]}"; do
             echo -e "${RED}    => case $i - $feedback_msg [x]${NC}"
             ((i++))
         done
         echo -e "${RED}[x] Oh no! You didn't complete all the tasks yet${NC}"
 
-        LOG_JSON_FILE="/var/log/gradingctl/labs/${LAB_ID}.log"
+        LOG_JSON_FILE="$LOG_TXT_FILE"
         echo -e "${YELLOW}[!] Hint: You may check gradingctl fetch-log $LAB_ID${NC}"
         echo -e "${YELLOW}[!] Or open the log file at: $LOG_JSON_FILE${NC}"
     fi
