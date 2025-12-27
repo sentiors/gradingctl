@@ -774,10 +774,10 @@ function grade_lab() {
 
                 elif [[ "$LAB_ID" == "OSADM-003-3" && "$KEY" == "gui_server_fip_ok" ]]; then
                     FIP="172.20.10.60"
-                    
+
                     # Cek FIP attached
                     FIP_CHECK=$(openstack floating ip show "$FIP" -f json 2>/dev/null | jq -r '.fixed_ip_address // empty')
-                    
+
                     if [[ -n "$FIP_CHECK" && "$FIP_CHECK" != "null" ]]; then
                         DATA["$KEY"]="OK"
                     else
@@ -786,10 +786,10 @@ function grade_lab() {
 
                 elif [[ "$LAB_ID" == "OSADM-003-3" && "$KEY" == "gui_nginx_ok" ]]; then
                     FIP="172.20.10.60"
-                    
+
                     # Cek nginx respond di port 80
                     HTTP_OUT=$(curl -m 5 -s -I "http://$FIP/" 2>&1 || true)
-                    
+
                     if echo "$HTTP_OUT" | grep -q "200" && echo "$HTTP_OUT" | grep -qi "nginx"; then
                         DATA["$KEY"]="OK"
                     else
@@ -831,7 +831,7 @@ function grade_lab() {
                     else
                         DATA["$KEY"]="Error: /dev/vdb not ext4 or not mounted on /data"
                     fi
-               
+
 
                 elif [[ "$LAB_ID" == "OSADM-004-2" && "$KEY" == "data_and_checksum_ok" ]]; then
                     FIP="$FLOATINGIP_CIRROS"
@@ -972,7 +972,7 @@ function grade_lab() {
                     FIP="172.20.10.62"
                     
                     BACKUP_INFO=$(ssh -n -o StrictHostKeyChecking=no userlab44@"$FIP" "ls -l ~/backup_data_kelompokx-sijax.tar.gz 2>&1" 2>/dev/null || echo "")
-                    
+
                     # Cek file ada dan owned by userlab44
                     if echo "$BACKUP_INFO" | grep -q "backup_data_kelompokx-sijax.tar.gz" && \
                        echo "$BACKUP_INFO" | grep -q "userlab44"; then
@@ -1038,16 +1038,17 @@ function grade_lab() {
                     if echo "$CONFIG" | grep -q "frontend ssh_front" && \
                        echo "$CONFIG" | grep -q "bind \*:2222" && \
                        echo "$CONFIG" | grep -q "backend ssh_back" && \
-                       echo "$CONFIG" | grep -q "balance roundrobin"; then
+                       echo "$CONFIG" | grep -q "192.70.1.12:2222" && \
+                       echo "$CONFIG" | grep -q "stick-table"; then
                         DATA["$KEY"]="exists"
                     else
-                        DATA["$KEY"]="Error: Config mismatch. Pastikan ada 'balance roundrobin' dan bind port 2222"
+                        DATA["$KEY"]="Error: SSH config mismatch (check port 2222 and stick-table)"
                     fi
 
                 elif [[ "$LAB_ID" == "OSADM-005-3" && "$KEY" == "haproxy_ssh_port_ok" ]]; then
                     HAPROXY_FIP="172.20.10.63"
                     # SSH ke port 22 (Management) untuk cek port 2222 (HAProxy)
-                    PORTS=$(sshpass -p "haproxy" ssh -p 22 -n -o StrictHostKeyChecking=no kelompokxsijax@$HAPROXY_FIP "sudo ss -tlnp" 2>/dev/null)
+                    PORTS=$(sshpass -p "haproxy" ssh -p 22 -o StrictHostKeyChecking=no kelompokxsijax@$HAPROXY_FIP "sudo ss -tlnp" 2>/dev/null)
 
                     if echo "$PORTS" | grep -q ":22 " && echo "$PORTS" | grep -q ":2222 "; then
                         DATA["$KEY"]="exists"
@@ -1056,10 +1057,26 @@ function grade_lab() {
                     fi
 
                 elif [[ "$LAB_ID" == "OSADM-005-3" && "$KEY" == "backend_ssh_service_ok" ]]; then
-                    DATA["$KEY"]="exists"
+                    HAPROXY_FIP="172.20.10.63"
+                    # Cek koneksi dari HAProxy ke port 2222 di backend
+                    B1_CHECK=$(sshpass -p "haproxy" ssh -n -o StrictHostKeyChecking=no kelompokxsijax@$HAPROXY_FIP "ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no ubuntu@192.70.1.12 -p 2222 'echo ok'" 2>/dev/null)
+                    B2_CHECK=$(sshpass -p "haproxy" ssh -n -o StrictHostKeyChecking=no kelompokxsijax@$HAPROXY_FIP "ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no ubuntu@192.70.1.13 -p 2222 'echo ok'" 2>/dev/null)
+
+                    if [[ "$B1_CHECK" == "ok" && "$B2_CHECK" == "ok" ]]; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: Backend SSH 2222 unreachable (B1=$B1_CHECK, B2=$B2_CHECK)"
+                    fi
 
                 elif [[ "$LAB_ID" == "OSADM-005-3" && "$KEY" == "haproxy_ssh_roundrobin_ok" ]]; then
-                    DATA["$KEY"]="exists"
+                    HAPROXY_FIP="172.20.10.63"
+                    # Cek stats HAProxy untuk memastikan backend ssh_back sudah menerima trafik
+                    STATS=$(curl -n -s "http://$HAPROXY_FIP:8404/stats" 2>/dev/null | grep "ssh_back")
+                    if [[ -n "$STATS" ]]; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: No traffic detected in ssh_back stats"
+                    fi
 
 		# ===================== OSADM-006-2 =====================
 		elif [[ "$LAB_ID" == "OSADM-006-2" && "$KEY" == "stack_name_ok" ]]; then
@@ -1602,8 +1619,8 @@ function grade_lab() {
                         kelompokxsijax@$HAPROXY_FIP "cat /etc/haproxy/haproxy.cfg" 2>/dev/null)
                     
                     # Cek weighted config: backend1 weight 2, backend2 weight 1
-                    B1_WEIGHT=$(echo "$CONFIG" | grep "192.70.1.12:80" | grep -o "weight [0-9]*" | awk '{print $2}')
-                    B2_WEIGHT=$(echo "$CONFIG" | grep "192.70.1.13:80" | grep -o "weight [0-9]*" | awk '{print $2}')
+                    B1_WEIGHT=$(echo "$CONFIG" | grep "192.70.1.11:80" | grep -o "weight [0-9]*" | awk '{print $2}')
+                    B2_WEIGHT=$(echo "$CONFIG" | grep "192.70.1.12:80" | grep -o "weight [0-9]*" | awk '{print $2}')
                     
                     if [[ "$B1_WEIGHT" == "2" && "$B2_WEIGHT" == "1" ]]; then
                         DATA["$KEY"]="exists"
@@ -1618,35 +1635,13 @@ function grade_lab() {
                         kelompokxsijax@$HAPROXY_FIP "cat /etc/haproxy/haproxy.cfg" 2>/dev/null)
                     
                     # Cek timeout 2700s (45 menit)
-                    CLIENT_LINE=$(echo "$CONFIG" | awk '
-                        /frontend ssh_front/ {in_front=1; next}
-                        in_front && /timeout client/ {print; in_front=0}
-                    ')
-                    SERVER_LINE=$(echo "$CONFIG" | awk '
-                        /backend ssh_back/ {in_back=1; next}
-                        in_back && /timeout server/ {print; in_back=0}
-                    ')
-
-                    TIMEOUT_CLIENT_RAW=$(echo "$CLIENT_LINE" | awk '{print $NF}')
-                    TIMEOUT_SERVER_RAW=$(echo "$SERVER_LINE" | awk '{print $NF}')
-                   
-                    OK_CLIENT=false
-                    OK_SERVER=false
-
-                    # client: 2700s atau 45m
-                    if [[ "$TIMEOUT_CLIENT_RAW" == "2700s" || "$TIMEOUT_CLIENT_RAW" == "45m" ]]; then
-                        OK_CLIENT=true
-                    fi
-
-                    # server: 2700s atau 45m
-                    if [[ "$TIMEOUT_SERVER_RAW" == "2700s" || "$TIMEOUT_SERVER_RAW" == "45m" ]]; then
-                        OK_SERVER=true
-                    fi
-
-                    if [[ "$OK_CLIENT" == true && "$OK_SERVER" == true ]]; then
+                    TIMEOUT_CLIENT=$(echo "$CONFIG" | grep "timeout client" | grep -o "[0-9]*" | tail -1)
+                    TIMEOUT_SERVER=$(echo "$CONFIG" | grep "timeout server" | grep -o "[0-9]*" | tail -1)
+                    
+                    if [[ "$TIMEOUT_CLIENT" == "2700" && "$TIMEOUT_SERVER" == "2700" ]]; then
                         DATA["$KEY"]="exists"
                     else
-                        DATA["$KEY"]="Error: Timeout not 2700s/45m (client=$TIMEOUT_CLIENT_RAW, server=$TIMEOUT_SERVER_RAW)"
+                        DATA["$KEY"]="Error: Timeout not 2700s (client=$TIMEOUT_CLIENT, server=$TIMEOUT_SERVER)"
                     fi
 
                 elif [[ "$LAB_ID" == "OSADM-QUIZ-005-1" && "$KEY" == "haproxy_healthcheck_ok" ]]; then
@@ -1869,46 +1864,6 @@ function grade_lab() {
 		        DATA["osadm-quiz-010-1-curl-check"]="not_exists"
 		    fi
 		
-                # ===================== OSADM-011-2 =====================
-                elif [[ "$LAB_ID" == "OSADM-011-2" && "$KEY" == "monitoring_quiz_ok" ]]; then
-                    FILE="$HOME/monitoring-lab-quiz-1.txt"
-                    
-                    if [[ ! -f "$FILE" ]]; then
-                        DATA["$KEY"]="Error: File tidak ditemukan"
-                    else
-                        S1=$(grep -A1 "^Soal 1$" "$FILE" | tail -1)
-                        S2=$(grep -A1 "^Soal 2$" "$FILE" | tail -1)
-                        S3=$(grep -A1 "^Soal 3$" "$FILE" | tail -1)
-                        
-                        if [[ "$S1" == "d. Jumlah domain/VM yang sedang berjalan (running)." && \
-                              "$S2" == "a. Persentase penggunaan memori VM (guest memory usage percent)." && \
-                              "$S3" == "b. Persentase penggunaan vCPU rata-rata per vCPU terhadap total alokasi vCPU VM." ]]; then
-                            DATA["$KEY"]="exists"
-                        else
-                            DATA["$KEY"]="Error: Jawaban salah"
-                        fi
-                    fi
-
-                # ===================== OSADM-011-3 =====================
-                elif [[ "$LAB_ID" == "OSADM-011-3" && "$KEY" == "monitoring_quiz_ok" ]]; then
-                    FILE="$HOME/monitoring-lab-quiz-2.txt"
-                    
-                    if [[ ! -f "$FILE" ]]; then
-                        DATA["$KEY"]="Error: File tidak ditemukan"
-                    else
-                        S1=$(grep -A1 "^Soal 1$" "$FILE" | tail -1)
-                        S2=$(grep -A1 "^Soal 2$" "$FILE" | tail -1)
-                        S3=$(grep -A1 "^Soal 3$" "$FILE" | tail -1)
-                        
-                        if [[ "$S1" == "c. Menghitung rata-rata pemakaian CPU per VM, dengan melihat kecepatan penggunaan vCPU dalam 5 menit terakhir." && \
-                              "$S2" == "b. Menghitung jumlah vCPU yang dimiliki setiap VM." && \
-                              "$S3" == "a. Membagi rata-rata pemakaian vCPU per VM dengan jumlah vCPU lalu mengubah hasilnya ke persen." ]]; then
-                            DATA["$KEY"]="exists"
-                        else
-                            DATA["$KEY"]="Error: Jawaban salah"
-                        fi
-                    fi
-
 
                 # ===================== OSADM-001-2 / 001-3 existing =====================
                 elif [[ "$KEY" == "image_name_ok" ]]; then
@@ -2124,13 +2079,8 @@ function grade_lab() {
                 fi
                 ;;
             *)
-            if [[ "$TYPE" == "gitlab_project" || "$TYPE" == "gitlab_pipeline" || \
-                  "$TYPE" == "gitlab_runner" || "$TYPE" == "grafana_alert_rule" || \
-                  "$TYPE" == "grafana_alert_firing" || "$TYPE" == "gmail_alert_email" ]]; then
+            if [[ "$TYPE" == "gitlab_project" || "$TYPE" == "gitlab_pipeline" || "$TYPE" == "gitlab_runner" ]]; then
                 # tipe ini dicek di server, agent cukup skip
-                if [[ -z "$KEY" ]]; then
-                    KEY="$TYPE"
-                fi
                 DATA["$KEY"]=""    # atau isi kosong
             else
                 echo "Unsupported criterion type: $TYPE"
