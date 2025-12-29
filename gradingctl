@@ -2034,6 +2034,68 @@ function grade_lab() {
 		        fi
 		    fi
 
+		# ===================== OSADM-CHALLENGE-1 =====================
+		elif [[ "$LAB_ID" == "OSADM-CHALLENGE-1" ]]; then
+		    SUFFIX="$EXPECTED_SUFFIX"
+
+		    if [[ "$KEY" == "project_name_ok" ]]; then
+		        EXPECTED_PROJECT="inventaris-sekolah-${SUFFIX}"
+		        if [[ "$EXPECTED_PROJECT" == "$(basename $(git rev-parse --show-toplevel 2>/dev/null || echo ''))" ]]; then
+		            DATA["$KEY"]="OK"
+		        else
+		            DATA["$KEY"]=""
+		        fi
+
+		    elif [[ "$KEY" == "web_staging_ok" ]]; then
+		        FLOATING_IP=$(openstack server list -f value -c Networks | grep -oE '([0-9]{1,3}\.){3}7' | head -1)
+		        if curl -s -m 5 "http://${FLOATING_IP}:80" | grep -qi "inventaris"; then
+		            DATA["$KEY"]="OK"
+		        else
+		            DATA["$KEY"]=""
+		        fi
+
+		    elif [[ "$KEY" == "web_production_ok" ]]; then
+		        FLOATING_IP=$(openstack server list -f value -c Networks | grep -oE '([0-9]{1,3}\.){3}8' | head -1)
+		        if curl -s -m 5 "http://${FLOATING_IP}:80" | grep -qi "inventaris"; then
+		            DATA["$KEY"]="OK"
+		        else
+		            DATA["$KEY"]=""
+		        fi
+
+		    elif [[ "$KEY" == "volume_attached_ok" ]]; then
+		        VOLUME_NAME="db-volume-${SUFFIX}"
+		        SERVER_NAME="git-node2-${SUFFIX}"
+		        if openstack volume list | grep -q "$VOLUME_NAME.*$SERVER_NAME"; then
+		            DATA["$KEY"]="OK"
+		        else
+		            DATA["$KEY"]=""
+		        fi
+
+		    elif [[ "$KEY" == "image_name_ok" ]]; then
+		        EXPECTED_IMAGE="inventaris-${SUFFIX}"
+		        OUTPUT=$(openstack image list -f value -c Name 2>/dev/null)
+		        if echo "$OUTPUT" | grep -Fxq "$EXPECTED_IMAGE"; then
+		            DATA["$KEY"]="exists"
+		        else
+		            DATA["$KEY"]=""
+		        fi
+
+		    elif [[ "$KEY" == "container_inventaris_ok" ]]; then
+		        if docker ps | grep -q "inventaris-${SUFFIX}"; then
+		            DATA["$KEY"]="OK"
+		        else
+		            DATA["$KEY"]=""
+		        fi
+
+		    elif [[ "$KEY" == "container_db_ok" ]]; then
+		        if docker ps | grep -q "inventaris-db"; then
+		            DATA["$KEY"]="OK"
+		        else
+		            DATA["$KEY"]=""
+		        fi
+		    fi
+
+
 		# ===================== OSADM-001-2 / 001-3 existing =====================
 		elif [[ "$LAB_ID" == "OSADM-001-2" || "$LAB_ID" == "OSADM-001-3" ]]; then
 
