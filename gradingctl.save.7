@@ -1,9 +1,7 @@
 #!/bin/bash
 
 SERVER_URL="http://100.70.220.18:8001"
-#ACTIVE_LAB_FILE="/tmp/active_lab"
-#ACTIVE_LAB_FILE="$HOME/.grading_active_lab"
-ACTIVE_LAB_FILE="$HOME/.active_lab"
+ACTIVE_LAB_FILE="/tmp/active_lab"
 
 # Warna ANSI
 GREEN='\033[0;32m'
@@ -20,7 +18,7 @@ function register() {
     echo -n "Password: "
     read -s password
     echo
-    echo -n "Kelompok: "
+    echo -n "Grup: "
     read group_name
     echo -n "Kelas: "
     read class_name
@@ -346,11 +344,6 @@ function grade_lab() {
         | tr '[:upper:]' '[:lower:]' \
         | grep -o 'kelompok[0-9x-]*sija[12x]' \
         | head -1)
-
-    if [[ -z "$USER_IDENTITY" ]]; then
-        CURRENT_OS_USER=$(whoami)
-        USER_IDENTITY=$(echo "$CURRENT_OS_USER" | tr '[:upper:]' '[:lower:]' | grep -o 'kelompok[0-9x-]*sija[12x]' | head -1)
-    fi
 
     if [[ -z "$USER_IDENTITY" ]]; then
         USER_IDENTITY="kelompokx-sijax"
@@ -845,7 +838,6 @@ function grade_lab() {
 				DATA["$KEY"]="Error: nginx not responding correctly on $CURRENT_FIP"
 			fi
 
-
 		# ===================== OSADM-004-2 (Cinder Volume & Storage) =====================
 		elif [[ "$LAB_ID" == "OSADM-004-2" && "$KEY" == "vol_created_attached_ok" ]]; then
 			VOL_NAME="volume-$EXPECTED_SUFFIX"
@@ -1116,869 +1108,814 @@ function grade_lab() {
 				DATA["$KEY"]="Error: B1=$B1_C B2=$B2_C (Round Robin not detected in 4 tries)"
 			fi
 
-		# ===================== OSADM-005-3 (HAProxy SSH Load Balancing) =====================
-		elif [[ "$LAB_ID" == "OSADM-005-3" && "$KEY" == "haproxy_vm_ok" ]]; then
-			HAPROXY_VM="haproxy-$EXPECTED_SUFFIX"
-			HAPROXY_STATUS=$(openstack server show "$HAPROXY_VM" -f json 2>/dev/null | jq -r '.status // empty')
-			if [[ "$HAPROXY_STATUS" == "ACTIVE" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: $HAPROXY_VM is not ACTIVE"
-			fi
 
-		elif [[ "$LAB_ID" == "OSADM-005-3" && "$KEY" == "backends_vm_ok" ]]; then
-			BACKEND1_VM="backend1-$EXPECTED_SUFFIX"
-			BACKEND2_VM="backend2-$EXPECTED_SUFFIX"
-
-			B1_STAT=$(openstack server show "$BACKEND1_VM" -f json 2>/dev/null | jq -r '.status // empty')
-			B2_STAT=$(openstack server show "$BACKEND2_VM" -f json 2>/dev/null | jq -r '.status // empty')
-
-			if [[ "$B1_STAT" == "ACTIVE" && "$B2_STAT" == "ACTIVE" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Backends not ACTIVE"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-005-3" && "$KEY" == "haproxy_ssh_config_ok" ]]; then
-			HAPROXY_VM="haproxy-$EXPECTED_SUFFIX"
-			SSH_USER=$(echo "$EXPECTED_SUFFIX" | tr -d '-')
-
-			TARGET_OCTET_FIP=$((FIP_RANGE_START_INT + 4))
-			FIP_HAPROXY="172.20.10.${TARGET_OCTET_FIP}"
-
-			IP_B1="$(echo "$TARGET_LB_NET" | cut -d. -f1-3).12"
-			IP_B2="$(echo "$TARGET_LB_NET" | cut -d. -f1-3).13"
-
-			CONFIG=$(sshpass -p "haproxy" ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=5 "${SSH_USER}@${FIP_HAPROXY}" "cat /etc/haproxy/haproxy.cfg" 2>/dev/null || echo "")
-
-			if echo "$CONFIG" | grep -q "frontend ssh_front" && \
-			   echo "$CONFIG" | grep -q "bind \*:2222" && \
-			   echo "$CONFIG" | grep -q "backend ssh_back" && \
-			   echo "$CONFIG" | grep -q "balance roundrobin" && \
-			   echo "$CONFIG" | grep -q "${IP_B1}:22" && \
-			   echo "$CONFIG" | grep -q "${IP_B2}:22"; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Config mismatch. Check port 2222, balance roundrobin, and backend IPs ($IP_B1, $IP_B2)"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-005-3" && "$KEY" == "haproxy_ssh_port_ok" ]]; then
-			SSH_USER=$(echo "$EXPECTED_SUFFIX" | tr -d '-')
-			TARGET_OCTET_FIP=$((FIP_RANGE_START_INT + 4))
-			FIP_HAPROXY="172.20.10.${TARGET_OCTET_FIP}"
-
-			PORTS=$(sshpass -p "haproxy" ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=5 "${SSH_USER}@${FIP_HAPROXY}" "sudo ss -tlnp" 2>/dev/null || echo "")
-
-			if echo "$PORTS" | grep -q ":22 " && echo "$PORTS" | grep -q ":2222 "; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Port 22 (SSH) or 2222 (HAProxy) not listening on $FIP_HAPROXY"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-005-3" && "$KEY" == "backend_ssh_service_ok" ]]; then
-			TARGET_OCTET_FIP=$((FIP_RANGE_START_INT + 4))
-			FIP_HAPROXY="172.20.10.${TARGET_OCTET_FIP}"
-
-			if timeout 3 bash -c "cat < /dev/null > /dev/tcp/${FIP_HAPROXY}/2222" 2>/dev/null; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Cannot connect to SSH service via HAProxy port 2222"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-005-3" && "$KEY" == "haproxy_ssh_roundrobin_ok" ]]; then
-			DATA["$KEY"]="exists"
-
-		# ===================== OSADM-006-2 (Auto Scaling Heat Stack) =====================
+		# ===================== OSADM-006-2 =====================
 		elif [[ "$LAB_ID" == "OSADM-006-2" && "$KEY" == "stack_name_ok" ]]; then
-			STACK_NAME="instance-stack-$EXPECTED_SUFFIX"
+		    LOCAL_SUFFIX="kelompokx-sijax"
+		    STACK_NAME="instance-stack-${LOCAL_SUFFIX}"
 
-			OUTPUT=$(openstack stack show "$STACK_NAME" -f value -c stack_status 2>&1)
-			if echo "$OUTPUT" | grep -qi "UPDATE_COMPLETE\|CREATE_COMPLETE"; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Stack $STACK_NAME not ready or not found"
-			fi
+		    # Simple: cek kalau stack show berhasil dan ada UPDATE_COMPLETE atau CREATE_COMPLETE di output
+		    OUTPUT=$(openstack stack show "$STACK_NAME" 2>&1)
+    
+		    if echo "$OUTPUT" | grep -qi "UPDATE_COMPLETE\|CREATE_COMPLETE"; then
+		        DATA["$KEY"]="exists"
+		    else
+		        DATA["$KEY"]="Error: Stack not ready or not found"
+		    fi
 
 		elif [[ "$LAB_ID" == "OSADM-006-2" && "$KEY" == "stack_events_scale_ok" ]]; then
-			STACK_NAME="instance-stack-$EXPECTED_SUFFIX"
+		    LOCAL_SUFFIX="kelompokx-sijax"
+		    STACK_NAME="instance-stack-${LOCAL_SUFFIX}"
 
-			OUTPUT=$(openstack stack event list "$STACK_NAME" 2>/dev/null)
+		    # Ambil event list
+		    OUTPUT=$(openstack stack event list "$STACK_NAME" 2>/dev/null)
 
-			SCALE_OUT_COUNT=$(echo "$OUTPUT" | grep "\.scale_out_policy\]" | grep "SIGNAL_COMPLETE" | wc -l)
-			SCALE_IN_COUNT=$(echo "$OUTPUT" | grep "\.scale_in_policy\]" | grep "SIGNAL_COMPLETE" | wc -l)
+		    # Hitung SIGNAL_COMPLETE untuk scale_out dan scale_in
+		    # Format: [stack.resource_name]: SIGNAL_COMPLETE
+		    SCALE_OUT_COUNT=$(echo "$OUTPUT" | grep "\.scale_out_policy\]" | grep "SIGNAL_COMPLETE" | wc -l)
+		    SCALE_IN_COUNT=$(echo "$OUTPUT" | grep "\.scale_in_policy\]" | grep "SIGNAL_COMPLETE" | wc -l)
 
-			if [[ $SCALE_OUT_COUNT -ge 2 && $SCALE_IN_COUNT -ge 2 ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Incomplete scaling history (Out:$SCALE_OUT_COUNT, In:$SCALE_IN_COUNT). Need >=2 each."
-			fi
+		    # Validasi: harus ada minimal 2 scale out dan 2 scale in SIGNAL_COMPLETE
+		    if [[ $SCALE_OUT_COUNT -ge 2 && $SCALE_IN_COUNT -ge 2 ]]; then
+		        DATA["$KEY"]="exists"
+		    else
+		        DATA["$KEY"]="Error: need >=2 scale out and >=2 scale in (got out=$SCALE_OUT_COUNT in=$SCALE_IN_COUNT)"
+		    fi
 
 		elif [[ "$LAB_ID" == "OSADM-006-2" && "$KEY" == "autoscaling_config_ok" ]]; then
-			STACK_NAME="instance-stack-$EXPECTED_SUFFIX"
+		    LOCAL_SUFFIX="kelompokx-sijax"
+		    STACK_NAME="instance-stack-${LOCAL_SUFFIX}"
 
-			TEMPLATE=$(openstack stack template show "$STACK_NAME" 2>/dev/null)
+		    # Ambil template
+		    TEMPLATE=$(openstack stack template show "$STACK_NAME" 2>/dev/null)
 
-			MIN_SIZE=$(echo "$TEMPLATE" | grep "min_size:" | awk '{print $2}' | tr -d ',:')
-			MAX_SIZE=$(echo "$TEMPLATE" | grep "max_size:" | awk '{print $2}' | tr -d ',:')
-			DESIRED=$(echo "$TEMPLATE" | grep "desired_capacity:" | awk '{print $2}' | tr -d ',:')
+		    # Parse: cut -d'#' -f1 untuk remove comment
+		    MIN_SIZE=$(echo "$TEMPLATE" | grep "min_size:" | cut -d'#' -f1 | awk '{print $2}' | tr -d ',:')
+		    MAX_SIZE=$(echo "$TEMPLATE" | grep "max_size:" | cut -d'#' -f1 | awk '{print $2}' | tr -d ',:')
+		    DESIRED=$(echo "$TEMPLATE" | grep "desired_capacity:" | cut -d'#' -f1 | awk '{print $2}' | tr -d ',:')
 
-			THRESHOLDS=$(echo "$TEMPLATE" | grep "threshold:" | awk '{print $2}' | tr -d ',:')
-			CPU_HIGH=$(echo "$THRESHOLDS" | head -1)
-			CPU_LOW=$(echo "$THRESHOLDS" | tail -1)
+		    # Parse threshold: cari SEMUA baris "threshold:" (any indentation)
+		    # Ambil 2 baris pertama (cpu_high dan cpu_low)
+		    THRESHOLDS=$(echo "$TEMPLATE" | grep "threshold:" | cut -d'#' -f1 | awk '{print $2}' | tr -d ',:')
+		    CPU_HIGH=$(echo "$THRESHOLDS" | head -1)
+		    CPU_LOW=$(echo "$THRESHOLDS" | tail -1)
 
-			if [[ "$MIN_SIZE" == "1" ]] && [[ $MAX_SIZE -ge 2 ]] && \
-			   [[ "$DESIRED" == "1" ]] && [[ -n "$CPU_HIGH" ]] && [[ -n "$CPU_LOW" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Config mismatch (Min:$MIN_SIZE, Max:$MAX_SIZE, Desired:$DESIRED). Check CPU thresholds."
-			fi
+		    # Validasi: min=1, max>=2, desired=1, dan ada threshold (tidak perlu exact value)
+		    if [[ "$MIN_SIZE" == "1" ]] && [[ $MAX_SIZE -ge 2 ]] && \
+		       [[ "$DESIRED" == "1" ]] && [[ -n "$CPU_HIGH" ]] && [[ -n "$CPU_LOW" ]]; then
+		        DATA["$KEY"]="exists"
+		    else
+		        DATA["$KEY"]="Error: Config (min=$MIN_SIZE max=$MAX_SIZE desired=$DESIRED high=$CPU_HIGH low=$CPU_LOW)"
+		    fi
 
-		# ===================== OSADM-007-2 (HAProxy Failover Test) =====================
+		# ===================== OSADM-007-2 =====================
 		elif [[ "$LAB_ID" == "OSADM-007-2" && "$KEY" == "http_backend2_failover_ok" ]]; then
-			TARGET_OCTET_FIP=$((FIP_RANGE_START_INT + 4))
-			FIP_HAPROXY="172.20.10.${TARGET_OCTET_FIP}"
+		    FIP="172.20.10.63"
+		    OK_COUNT=0
 
-			B1_NAME="backend1-$EXPECTED_SUFFIX"
-			B2_NAME="backend2-$EXPECTED_SUFFIX"
+		    for i in {1..4}; do
+		        OUT=$(curl -s --max-time 5 "http://$FIP" 2>&1)
+		        # ACTUAL: curl dapet backend1 → backend2 MATI, backend1 handle semua request
+		        if echo "$OUT" | grep -qi "backend1-kelompokx-sijax"; then
+		            ((OK_COUNT++))
+		        fi
+		    done
 
-			OK_COUNT=0
-			for i in {1..4}; do
-				OUT=$(curl -s --max-time 5 "http://$FIP_HAPROXY" 2>&1)
-				if echo "$OUT" | grep -qi "$B1_NAME"; then
-					((OK_COUNT++))
-				fi
-			done
-
-			if [[ $OK_COUNT -eq 4 ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Only $OK_COUNT/4 response from $B1_NAME. Is $B2_NAME still alive or $B1_NAME down?"
-			fi
+		    if [[ $OK_COUNT -eq 4 ]]; then
+		        DATA["$KEY"]="exists"
+		    else
+		        DATA["$KEY"]="Error: Only $OK_COUNT/4 curl ke Backend1 (backend2 failover)"
+		    fi
 
 		elif [[ "$LAB_ID" == "OSADM-007-2" && "$KEY" == "ssh_backend1_failover_ok" ]]; then
-			TARGET_OCTET_FIP=$((FIP_RANGE_START_INT + 4))
-			FIP_HAPROXY="172.20.10.${TARGET_OCTET_FIP}"
-			SSH_USER=$(echo "$EXPECTED_SUFFIX" | tr -d '-')
-
-			B2_NAME="backend2-$EXPECTED_SUFFIX"
-
-			OUT=$(sshpass -p "haproxy" ssh -n -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-			      -o ConnectTimeout=5 -p 2222 "${SSH_USER}@${FIP_HAPROXY}" "hostname" 2>&1)
-
-			if echo "$OUT" | grep -qi "$B2_NAME"; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: SSH failover failed. Expected $B2_NAME, but got: $OUT"
-			fi
-
-		# ===================== OSADM-008-2 (Git Fundamentals) =====================
-		elif [[ "$LAB_ID" == "OSADM-008-2" && "$KEY" == "osadm-008-2-git-config" ]]; then
-			TARGET_OCTET_FIP=$((FIP_RANGE_START_INT + 6))
-			FIP_GIT="172.20.10.${TARGET_OCTET_FIP}"
-
-			GIT_USER_CONFIG=$(echo "$EXPECTED_SUFFIX" | tr -d '-')
-
-			OUT_CONFIG=$(ssh -n -o StrictHostKeyChecking=no "ubuntu@$FIP_GIT" "git config --global --list" 2>/dev/null || echo "FAIL")
-
-			if echo "$OUT_CONFIG" | grep -qi "user.name=$GIT_USER_CONFIG" && \
-			   echo "$OUT_CONFIG" | grep -qi "init.defaultbranch=main"; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Git global config mismatch. Expected name=$GIT_USER_CONFIG and branch=main"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-008-2" && "$KEY" == "osadm-008-2-readme-check" ]]; then
-			TARGET_OCTET_FIP=$((FIP_RANGE_START_INT + 6))
-			FIP_GIT="172.20.10.${TARGET_OCTET_FIP}"
-
-			GIT_CONTENT_NAME="$EXPECTED_SUFFIX"
-
-			OUT_README=$(ssh -n -o StrictHostKeyChecking=no "ubuntu@$FIP_GIT" "cat ~/verify-dir/README.md" 2>/dev/null || echo "FAIL")
-
-			EXPECT_CONTENT="Hai-$GIT_CONTENT_NAME"
-			if echo "$OUT_README" | grep -qi "$EXPECT_CONTENT"; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: README.md mismatch. Expected content: $EXPECT_CONTENT"
-			fi
-
-		# ===================== OSADM-008-3 (Git Staging) =====================
-		elif [[ "$LAB_ID" == "OSADM-008-3" && "$KEY" == "osadm-008-3-commit-log" ]]; then
-			TARGET_OCTET_FIP=$((FIP_RANGE_START_INT + 6))
-			FIP_GIT="172.20.10.${TARGET_OCTET_FIP}"
-			REPO_DIR="our-project-$EXPECTED_SUFFIX"
-
-			OUT_LOG=$(ssh -n -o StrictHostKeyChecking=no "ubuntu@$FIP_GIT" "cd ~/$REPO_DIR && git log --oneline" 2>/dev/null || echo "FAIL")
-
-			COMMIT_COUNT=$(echo "$OUT_LOG" | wc -l)
-			if [[ $COMMIT_COUNT -ge 2 ]] && echo "$OUT_LOG" | grep -qi "multiple files"; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Commit 'multiple files' not found in $REPO_DIR or commits < 2"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-008-3" && "$KEY" == "osadm-008-3-files-check" ]]; then
-			TARGET_OCTET_FIP=$((FIP_RANGE_START_INT + 6))
-			FIP_GIT="172.20.10.${TARGET_OCTET_FIP}"
-
-			CHECK_FILES=$(ssh -n -o StrictHostKeyChecking=no "ubuntu@$FIP_GIT" "ls ~/verify-dir-0083/file1.txt ~/verify-dir-0083/file2.txt ~/verify-dir-0083/file3.txt >/dev/null 2>&1 && echo OK || echo FAIL")
-
-			if [[ "$CHECK_FILES" == "OK" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: file1.txt, file2.txt, or file3.txt missing in ~/verify-dir-0083"
-			fi
-
-		# ===================== OSADM-008-4 (Git Branch & Merge) =====================
-		elif [[ "$LAB_ID" == "OSADM-008-4" && "$KEY" == "osadm-008-4-merge-log" ]]; then
-			TARGET_OCTET_FIP=$((FIP_RANGE_START_INT + 6))
-			FIP_GIT="172.20.10.${TARGET_OCTET_FIP}"
-			REPO_DIR="our-project-$EXPECTED_SUFFIX"
-
-			OUT_LOG=$(ssh -n -o StrictHostKeyChecking=no "ubuntu@$FIP_GIT" "cd ~/$REPO_DIR && git log --oneline" 2>/dev/null || echo "FAIL")
-
-			if echo "$OUT_LOG" | grep -qi "Resolve merge conflict"; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Log 'Resolve merge conflict' not found in repo $REPO_DIR"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-008-4" && "$KEY" == "osadm-008-4-content-check" ]]; then
-			TARGET_OCTET_FIP=$((FIP_RANGE_START_INT + 6))
-			FIP_GIT="172.20.10.${TARGET_OCTET_FIP}"
-
-			OUT_README=$(ssh -n -o StrictHostKeyChecking=no "ubuntu@$FIP_GIT" "cat ~/verify-dir-0084/README.md" 2>/dev/null || echo "FAIL")
-
-			HAS_MAIN=$(echo "$OUT_README" | grep -qi "Update langsung dari main" && echo OK || echo NO)
-			HAS_FEAT=$(echo "$OUT_README" | grep -qi "Update dari feature" && echo OK || echo NO)
-
-			if [[ "$HAS_MAIN" == "OK" ]] && [[ "$HAS_FEAT" == "OK" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: README.md incomplete. Must contain lines from both 'main' and 'feature' branches."
-			fi
-
-		# ===================== QUIZ 002-1 (Orchestration & Security) =====================
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-002-1" && "$KEY" == "intnet_name_ok" ]]; then
-			NET_NAME="intnet-quiz002-1-$EXPECTED_SUFFIX"
-
-			OUTPUT=$(openstack network list -f value -c Name 2>/dev/null)
-			if echo "$OUTPUT" | grep -Fxq "$NET_NAME"; then
-				DATA["$KEY"]="OK"
-			else
-				DATA["$KEY"]="Error: network $NET_NAME not found"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-002-1" && "$KEY" == "intsubnet_cidr_ok" ]]; then
-			OUTPUT=$(openstack subnet show "intsubnet-quiz002-1-$EXPECTED_SUFFIX" -f json 2>/dev/null || echo "")
-			CIDR=$(echo "$OUTPUT" | jq -r '.cidr // empty')
-
-			# Menggunakan EXPECTED_INTERNAL_OCTET dari helper
-			EXPECTED_CIDR="192.30.${EXPECTED_INTERNAL_OCTET}.0/24"
-
-			if [[ "$CIDR" == "$EXPECTED_CIDR" ]]; then
-				DATA["$KEY"]="OK"
-			else
-				DATA["$KEY"]="Error: wrong CIDR (expected $EXPECTED_CIDR, got $CIDR)"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-002-1" && "$KEY" == "router_iface_ok" ]]; then
-			SUBNET_NAME="intsubnet-quiz002-1-$EXPECTED_SUFFIX"
-			ROUTER_NAME="ro-horizon-$EXPECTED_SUFFIX"
-
-			SUBNETS=$(openstack router show "$ROUTER_NAME" -f json 2>/dev/null | jq -r '.interfaces_info[].subnet_id // empty')
-			SUBNET_ID=$(openstack subnet show "$SUBNET_NAME" -f json 2>/dev/null | jq -r '.id // empty')
-			if [[ -n "$SUBNET_ID" ]] && echo "$SUBNETS" | grep -Fxq "$SUBNET_ID"; then
-				DATA["$KEY"]="OK"
-			else
-				DATA["$KEY"]="Error: $ROUTER_NAME not connected to $SUBNET_NAME"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-002-1" && "$KEY" == "floating_ip_ok" ]]; then
-			OUTPUT=$(openstack floating ip list -f json 2>/dev/null || echo "[]")
-			HAS_FIP=$(echo "$OUTPUT" | jq -r --arg ip "$FLOATINGIP" '.[] | select(."Floating IP Address" == $ip) | ."Floating IP Address"' | head -n1)
-			if [[ "$HAS_FIP" == "$FLOATINGIP" ]]; then
-				DATA["$KEY"]="OK"
-			else
-				DATA["$KEY"]="Error: floating IP $FLOATINGIP not found in project"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-002-1" && "$KEY" == "secgroup_name_ok" ]]; then
-			SG_NAME="scg-quiz002-1-$EXPECTED_SUFFIX"
-
-			OUTPUT=$(openstack security group list -f value -c Name 2>/dev/null)
-			if echo "$OUTPUT" | grep -Fxq "$SG_NAME"; then
-				DATA["$KEY"]="OK"
-			else
-				DATA["$KEY"]="Error: security group $SG_NAME not found"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-002-1" && "$KEY" == "secgroup_rules_ok" ]]; then
-			SG_NAME="scg-quiz002-1-$EXPECTED_SUFFIX"
-
-			OUTPUT=$(openstack security group rule list "$SG_NAME" -f json 2>/dev/null || echo "[]")
-
-			HAS_ICMP=$(echo "$OUTPUT" | jq -r '.[]? | select(."IP Protocol" == "icmp" and .Direction == "ingress") | .ID' | head -n1)
-			HAS_SSH=$(echo "$OUTPUT"  | jq -r '.[]? | select(."IP Protocol" == "tcp" and ."Port Range" == "22:22"  and .Direction == "ingress") | .ID' | head -n1)
-			HAS_HTTP=$(echo "$OUTPUT" | jq -r '.[]? | select(."IP Protocol" == "tcp" and ."Port Range" == "80:80"  and .Direction == "ingress") | .ID' | head -n1)
-			HAS_HTTPS=$(echo "$OUTPUT"| jq -r '.[]? | select(."IP Protocol" == "tcp" and ."Port Range" == "443:443" and .Direction == "ingress") | .ID' | head -n1)
-
-			if [[ -n "$HAS_ICMP" && -n "$HAS_SSH" && -n "$HAS_HTTP" && -n "$HAS_HTTPS" ]]; then
-				DATA["$KEY"]="OK"
-			else
-				DATA["$KEY"]="Error: missing required rules in $SG_NAME"
-			fi
-
-		# ===================== QUIZ 002-2 (Cleanup & Deletion) =====================
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-002-2" && "$KEY" == "intnet_deleted" ]]; then
-			NET_NAME="intnet-quiz002-1-$EXPECTED_SUFFIX"
-
-			OUTPUT=$(openstack network list -f value -c Name 2>/dev/null)
-			if echo "$OUTPUT" | grep -Fxq "$NET_NAME"; then
-				DATA["$KEY"]="Error: internal network $NET_NAME masih ada"
-			else
-				DATA["$KEY"]="OK"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-002-2" && "$KEY" == "intsubnet_deleted" ]]; then
-			SUBNET_NAME="intsubnet-quiz002-1-$EXPECTED_SUFFIX"
-
-			OUTPUT=$(openstack subnet list -f value -c Name 2>/dev/null)
-			if echo "$OUTPUT" | grep -Fxq "$SUBNET_NAME"; then
-				DATA["$KEY"]="Error: internal subnet $SUBNET_NAME masih ada"
-			else
-				DATA["$KEY"]="OK"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-002-2" && "$KEY" == "router_iface_unset" ]]; then
-			SUBNET_NAME="intsubnet-quiz002-1-$EXPECTED_SUFFIX"
-			ROUTER_NAME="ro-horizon-$EXPECTED_SUFFIX"
-
-			QUIZ_SUBNET_ID=$(openstack subnet show "$SUBNET_NAME" -f json 2>/dev/null | jq -r '.id // empty')
-
-			if [[ -z "$QUIZ_SUBNET_ID" ]]; then
-				DATA["$KEY"]="OK"
-			else
-				SUBNETS_IN_ROUTER=$(openstack router show "$ROUTER_NAME" -f json 2>/dev/null | jq -r '.interfaces_info[].subnet_id // empty')
-				if echo "$SUBNETS_IN_ROUTER" | grep -Fxq "$QUIZ_SUBNET_ID"; then
-					DATA["$KEY"]="Error: router $ROUTER_NAME masih connected ke quiz subnet"
-				else
-					DATA["$KEY"]="OK"
-				fi
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-002-2" && "$KEY" == "floating_ip_deleted" ]]; then
-			OUTPUT=$(openstack floating ip list -f json 2>/dev/null || echo "[]")
-			HAS_FIP=$(echo "$OUTPUT" | jq -r --arg ip "$FLOATINGIP" '.[] | select(."Floating IP Address" == $ip) | ."Floating IP Address"' | head -n1)
-
-			if [[ -z "$HAS_FIP" || "$HAS_FIP" != "$FLOATINGIP" ]]; then
-				DATA["$KEY"]="OK"
-			else
-				DATA["$KEY"]="Error: floating IP $FLOATINGIP masih ada (belum di-release)"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-002-2" && "$KEY" == "secgroup_deleted" ]]; then
-			SG_NAME="scg-quiz002-1-$EXPECTED_SUFFIX"
-
-			OUTPUT=$(openstack security group list -f value -c Name 2>/dev/null)
-			if echo "$OUTPUT" | grep -Fxq "$SG_NAME"; then
-				DATA["$KEY"]="Error: security group $SG_NAME masih ada"
-			else
-				DATA["$KEY"]="OK"
-			fi
-
-		# ===================== OSADM-QUIZ-003-1 =====================
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-003-1" ]]; then
-
-			# 1. SETUP IDENTITAS (Sesuai Helper)
-			# Contoh: kelompok1-sija1
-			SUFFIX="$EXPECTED_SUFFIX"
-			# Format tanpa strip untuk folder & username: kelompok1sija1
-			RAW_ID="kelompok${GROUP_NUM}sija${CLASS_TYPE}"
-
-			# 2. DEFINISI RESOURCE DINAMIS
-			VM_NAME="2048-quiz003-1-$SUFFIX"
-			EXP_FLAVOR="quiz003-1-medium-$SUFFIX"
-			EXP_IMAGE="ubuntu24.04-quiz003-1-$SUFFIX"
-			EXP_NET="net-quiz003-1-$SUFFIX"
-			EXP_SUBNET="subnet-quiz003-1-$SUFFIX"
-			EXP_PORT="port-quiz003-1-$SUFFIX"
-			EXP_SG="sg-quiz003-1-$SUFFIX"
-			EXP_KEY="key-quiz003-1-$SUFFIX"
-
-			# 3. PERHITUNGAN IP (IP Ketiga dari Range)
-			# Jika START=69, maka IP ke-1=.69, ke-2=.70, ke-3=.71
-			FIP_THIRD=$((FIP_RANGE_START_INT + 2))
-			TARGET_FIP="172.20.10.${FIP_THIRD}"
-
-			if [[ "$KEY" == "quiz3_server_ok" ]]; then
-				OUTPUT=$(openstack server show "$VM_NAME" -f json 2>/dev/null || echo "")
-				FLAVOR=$(echo "$OUTPUT" | jq -r '.flavor.original_name // empty')
-				IMAGE=$(echo "$OUTPUT"  | jq -r '.image // empty')
-				KEYNAME=$(echo "$OUTPUT" | jq -r '.key_name // empty')
-				SG_LIST=$(echo "$OUTPUT" | jq -r '.security_groups[].name // empty' | tr '\n' ' ')
-				NETS=$(echo "$OUTPUT" | jq -r '.addresses | keys[]? // empty' | tr '\n' ' ')
-
-				if [[ "$FLAVOR" == "$EXP_FLAVOR" && "$IMAGE" == *"$EXP_IMAGE"* && \
-					  "$KEYNAME" == "$EXP_KEY" && "$SG_LIST" == *"$EXP_SG"* && \
-					  "$NETS" == *"$EXP_NET"* ]]; then
-					DATA["$KEY"]="OK"
-				else
-					DATA["$KEY"]="Error: Spec mismatch (Flavor/Image/Key/SG/Net)"
-				fi
-
-			elif [[ "$KEY" == "quiz3_net_ok" ]]; then
-				OUTPUT=$(openstack subnet show "$EXP_SUBNET" -f json 2>/dev/null || echo "")
-				CIDR=$(echo "$OUTPUT" | jq -r '.cidr // empty')
-				GW=$(echo "$OUTPUT" | jq -r '.gateway_ip // empty')
-				P_START=$(echo "$OUTPUT" | jq -r '.allocation_pools[0].start // empty')
-				P_END=$(echo "$OUTPUT" | jq -r '.allocation_pools[0].end // empty')
-				DNS=$(echo "$OUTPUT" | jq -r '.dns_nameservers[0] // empty')
-
-				EXPECTED_CIDR="172.19.${EXPECTED_INTERNAL_OCTET}.0/24"
-				EXPECTED_GW="172.19.${EXPECTED_INTERNAL_OCTET}.1"
-				EXPECTED_S="172.19.${EXPECTED_INTERNAL_OCTET}.35"
-				EXPECTED_E="172.19.${EXPECTED_INTERNAL_OCTET}.75"
-
-				if [[ "$CIDR" == "$EXPECTED_CIDR" && "$GW" == "$EXPECTED_GW" && \
-					  "$P_START" == "$EXPECTED_S" && "$P_END" == "$EXPECTED_E" && \
-					  "$DNS" == "8.8.8.8" ]]; then
-					DATA["$KEY"]="OK"
-				else
-					DATA["$KEY"]="Error: Subnet/Pool mismatch (Exp: 172.19.${EXPECTED_INTERNAL_OCTET}.0/24)"
-				fi
-
-			elif [[ "$KEY" == "quiz3_port_ok" ]]; then
-				OUTPUT=$(openstack port show "$EXP_PORT" -f json 2>/dev/null || echo "")
-				FIX_IP=$(echo "$OUTPUT" | jq -r '.fixed_ips[0].ip_address // empty')
-				TARGET_FIXED="172.19.${EXPECTED_INTERNAL_OCTET}.47"
-
-				if [[ "$FIX_IP" == "$TARGET_FIXED" ]]; then
-					DATA["$KEY"]="OK"
-				else
-					DATA["$KEY"]="Error: Port IP is $FIX_IP (Exp: $TARGET_FIXED)"
-				fi
-
-			elif [[ "$KEY" == "quiz3_fip_ok" ]]; then
-				OUTPUT=$(openstack server show "$VM_NAME" -f json 2>/dev/null || echo "")
-				ACTUAL_FIP=$(echo "$OUTPUT" | jq -r '.addresses | .[].[] | select(test("^172\\.20\\.10\\."))' | head -n1)
-
-				if [[ "$ACTUAL_FIP" == "$TARGET_FIP" ]]; then
-					DATA["$KEY"]="OK"
-				else
-					DATA["$KEY"]="Error: Floating IP mismatch (Exp: $TARGET_FIP, Got: $ACTUAL_FIP)"
-				fi
-
-			elif [[ "$KEY" == "quiz3_nginx_2048_ok" ]]; then
-				HTTP_CHECK=$(curl -m 5 -s "http://$TARGET_FIP/" | grep -qi "2048" && echo "OK" || echo "FAIL")
-
-				SSH_USER="$RAW_ID"
-				FOLDER_CHECK=$(ssh -n -o StrictHostKeyChecking=no "$SSH_USER@$TARGET_FIP" "[ -d /var/www/$RAW_ID ] && echo 'OK'" 2>/dev/null || echo "FAIL")
-
-				if [[ "$HTTP_CHECK" == "OK" && "$FOLDER_CHECK" == "OK" ]]; then
-					DATA["$KEY"]="OK"
-				else
-					DATA["$KEY"]="Error: App not reachable or folder /var/www/$RAW_ID missing"
-				fi
-			fi
-
-		# ===================== OSADM-QUIZ-004-1 =====================
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-004-1" && "$KEY" == "vol_2048_created_ok" ]]; then
-			SUFFIX="$EXPECTED_SUFFIX"
-			VOL_ORIGINAL="vol-2048-$SUFFIX"
-
-			SIZE=$(openstack volume show "$VOL_ORIGINAL" -f value -c size 2>/dev/null)
-			if [[ "$SIZE" == "2" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Volume $VOL_ORIGINAL mismatch"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-004-1" && "$KEY" == "vm_snapshot_created_ok" ]]; then
-			SUFFIX="$EXPECTED_SUFFIX"
-			SNAP_VM="snap-vm2048-$SUFFIX"
-
-			STATUS=$(openstack image show "$SNAP_VM" -f value -c status 2>/dev/null)
-			if [[ "$STATUS" == "active" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: VM Snapshot $SNAP_VM not active"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-004-1" && "$KEY" == "vol_snapshot_created_ok" ]]; then
-			SUFFIX="$EXPECTED_SUFFIX"
-			SNAP_VOL="snap-vol2048-$SUFFIX"
-
-			STATUS=$(openstack volume snapshot show "$SNAP_VOL" -f value -c status 2>/dev/null)
-			if [[ "$STATUS" == "available" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Volume Snapshot $SNAP_VOL not available"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-004-1" && "$KEY" == "vm_rescue_created_ok" ]]; then
-			SUFFIX="$EXPECTED_SUFFIX"
-			SNAP_VM="snap-vm2048-$SUFFIX"
-			VM_RESCUE="vm2048rescue-$SUFFIX"
-
-			OUTPUT=$(openstack server show "$VM_RESCUE" -f json 2>/dev/null || echo "")
-			IMG_ID=$(echo "$OUTPUT" | jq -r '.image // empty')
-			STATUS=$(echo "$OUTPUT" | jq -r '.status // empty')
-			SNAP_ID=$(openstack image show "$SNAP_VM" -f value -c id 2>/dev/null)
-
-			if [[ "$STATUS" == "ACTIVE" && "$IMG_ID" == "$SNAP_ID" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: VM Rescue not using $SNAP_VM or not active"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-004-1" && "$KEY" == "vol_snapshot_attached_ok" ]]; then
-			SUFFIX="$EXPECTED_SUFFIX"
-			VM_RESCUE="vm2048rescue-$SUFFIX"
-			VOL_FROM_SNAP="vol-snap2048-$SUFFIX"
-
-			OUTPUT=$(openstack volume show "$VOL_FROM_SNAP" -f json 2>/dev/null || echo "")
-			STATUS=$(echo "$OUTPUT" | jq -r '.status // empty')
-			ATTACHED_TO=$(echo "$OUTPUT" | jq -r '.attachments[0].server_id // empty')
-			RESCUE_ID=$(openstack server show "$VM_RESCUE" -f value -c id 2>/dev/null)
-
-			if [[ "$STATUS" == "in-use" && "$ATTACHED_TO" == "$RESCUE_ID" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Volume $VOL_FROM_SNAP not attached to $VM_RESCUE"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-004-1" && "$KEY" == "backup_mounted_and_app_ok" ]]; then
-			SUFFIX="$EXPECTED_SUFFIX"
-			RAW_ID="kelompok${GROUP_NUM}sija${CLASS_TYPE}"
-
-			FIP_THIRD=$((FIP_RANGE_START_INT + 2))
-			TARGET_FIP="172.20.10.${FIP_THIRD}"
-
-			SSH_USER="$RAW_ID"
-
-			MOUNT_CHECK=$(ssh -n -o StrictHostKeyChecking=no "$SSH_USER@$TARGET_FIP" "mount | grep /backup/$RAW_ID" 2>/dev/null || echo "")
-			NGINX_ROOT_CHECK=$(ssh -n -o StrictHostKeyChecking=no "$SSH_USER@$TARGET_FIP" "grep -r 'root /backup/$RAW_ID' /etc/nginx/" 2>/dev/null || echo "")
-			HTTP_CHECK=$(curl -m 5 -s "http://$TARGET_FIP/" | grep -qi "2048" && echo "OK" || echo "FAIL")
-
-			if [[ -n "$MOUNT_CHECK" && -n "$NGINX_ROOT_CHECK" && "$HTTP_CHECK" == "OK" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Mount failed, Nginx root not updated, or app inaccessible"
-			fi
-
-		# ===================== OSADM-QUIZ-005-1 =====================
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-005-1" && "$KEY" == "haproxy_vm_ok" ]]; then
-			SUFFIX="$EXPECTED_SUFFIX"
-			STATUS=$(openstack server show "haproxy-$SUFFIX" -f value -c status 2>/dev/null)
-			if [[ "$STATUS" == "ACTIVE" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: HAProxy VM not active"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-005-1" && "$KEY" == "backends_vm_ok" ]]; then
-			LB_NET_PREFIX=$(echo "$TARGET_LB_NET" | cut -d. -f1-3)
-
-			B1_STATUS=$(openstack server list --ip "${LB_NET_PREFIX}.11" -f value -c Status 2>/dev/null)
-			B2_STATUS=$(openstack server list --ip "${LB_NET_PREFIX}.12" -f value -c Status 2>/dev/null)
-
-			if [[ "$B1_STATUS" == "ACTIVE" && "$B2_STATUS" == "ACTIVE" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Backend IPs (${LB_NET_PREFIX}.11/12) not active"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-005-1" && "$KEY" == "haproxy_http_weighted_ok" ]]; then
-			SSH_LB_PORT="2222"
-			HAPROXY_FIP="172.20.10.${FIP_RANGE_START_INT}"
-			LB_NET_PREFIX=$(echo "$TARGET_LB_NET" | cut -d. -f1-3)
-
-			CONFIG=$(ssh -n -o StrictHostKeyChecking=no ubuntu@"$HAPROXY_FIP" "cat /etc/haproxy/haproxy.cfg" 2>/dev/null)
-
-			B1_W=$(echo "$CONFIG" | grep "${LB_NET_PREFIX}.11" | grep -o "weight [0-9]*" | awk '{print $2}')
-			B2_W=$(echo "$CONFIG" | grep "${LB_NET_PREFIX}.12" | grep -o "weight [0-9]*" | awk '{print $2}')
-
-			if [[ "$B1_W" == "2" && "$B2_W" == "1" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Weight mismatch (B1=$B1_W, B2=$B2_W). Expected 2:1"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-005-1" && "$KEY" == "haproxy_ssh_timeout_ok" ]]; then
-			SSH_LB_PORT="2222"
-			HAPROXY_FIP="172.20.10.${FIP_RANGE_START_INT}"
-
-			CONFIG=$(ssh -n -o StrictHostKeyChecking=no ubuntu@"$HAPROXY_FIP" "cat /etc/haproxy/haproxy.cfg" 2>/dev/null)
-
-			SSH_TIMEOUT=$(echo "$CONFIG" | sed -n "/$SSH_LB_PORT/,/backend\|frontend\|listen/p" | grep "timeout" | grep -E "2700s|45m" | head -n1)
-
-			if [[ -n "$SSH_TIMEOUT" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: SSH timeout 45m/2700s not found for port $SSH_LB_PORT"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-005-1" && "$KEY" == "haproxy_healthcheck_ok" ]]; then
-			HAPROXY_FIP="172.20.10.${FIP_RANGE_START_INT}"
-
-			CONFIG=$(ssh -n -o StrictHostKeyChecking=no ubuntu@"$HAPROXY_FIP" "cat /etc/haproxy/haproxy.cfg" 2>/dev/null)
-
-			if echo "$CONFIG" | grep -q "check" && echo "$CONFIG" | grep -qE "option httpchk|option tcp-check"; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Healthcheck configuration missing"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-005-1" && "$KEY" == "haproxy_http_weighted_verify_ok" ]]; then
-			HAPROXY_FIP="172.20.10.${FIP_RANGE_START_INT}"
-
-			B1_HITS=0
-			B2_HITS=0
-
-			for i in {1..6}; do
-				RES=$(curl -s --max-time 2 "http://$HAPROXY_FIP/")
-				if echo "$RES" | grep -qi "Backend1"; then
-					((B1_HITS++))
-				elif echo "$RES" | grep -qi "Backend2"; then
-					((B2_HITS++))
-				fi
-			done
-
-			if [[ $B1_HITS -gt $B2_HITS && $B2_HITS -gt 0 ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: WRR Verification failed (B1 hits: $B1_HITS, B2 hits: $B2_HITS)"
-			fi
+		    FIP="172.20.10.63"
+		    OUT=$(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+		        -p 2222 kelompokxsijax@$FIP "hostname" 2>&1)
+
+		    # ACTUAL: SSH dapet backend2 → backend1 MATI, SSH diarahkan ke backend2
+		    if echo "$OUT" | grep -qi "backend2-kelompokx-sijax"; then
+		        DATA["$KEY"]="exists"
+		    else
+		        DATA["$KEY"]="Error: SSH got $OUT"
+		    fi
+
+	        # ===================== OSADM-008-2 GIT CONFIG =====================
+                elif [[ "$LAB_ID" == "OSADM-008-2" && "$KEY" == "osadm-008-2-git-config" ]]; then
+                    HOST="ubuntu@172.20.10.65"
+                    # Cek user.name dan defaultBranch
+                    OUT_CONFIG=$(ssh -n -o StrictHostKeyChecking=no "$HOST" "git config --global --list || echo FAIL")
+
+                    # Sesuaikan kata kelompokx-sijax dengan pola kelompokmu
+                    if echo "$OUT_CONFIG" | grep -qi "user.name=kelompokxsijax" && echo "$OUT_CONFIG" | grep -qi "init.defaultbranch=main"; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: Git global config mismatch (name or branch)"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-008-2" && "$KEY" == "osadm-008-2-readme-check" ]]; then
+                    HOST="ubuntu@172.20.10.65"
+                    # Cek isi file README.md di folder verify-dir
+                    OUT_README=$(ssh -n -o StrictHostKeyChecking=no "$HOST" "cat ~/verify-dir/README.md || echo FAIL")
+
+                    EXPECT_CONTENT="Hai-kelompokx-sijax"
+                    if echo "$OUT_README" | grep -qi "$EXPECT_CONTENT"; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: README.md content mismatch or verify-dir not found"
+                    fi
+
+                # ===================== OSADM-008-3 STAGING ALL =====================
+                elif [[ "$LAB_ID" == "OSADM-008-3" && "$KEY" == "osadm-008-3-commit-log" ]]; then
+                    HOST="ubuntu@172.20.10.65"
+                    # Cek minimal ada 2 commit dan mengandung kata 'multiple files'
+                    OUT_LOG=$(ssh -n -o StrictHostKeyChecking=no "$HOST" "cd ~/our-project-kelompok*-sijax && git log --oneline || echo FAIL")
+
+                    COMMIT_COUNT=$(echo "$OUT_LOG" | wc -l)
+                    if [[ $COMMIT_COUNT -ge 2 ]] && echo "$OUT_LOG" | grep -qi "multiple files"; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: Commit 'multiple files' not found or commits less than 2"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-008-3" && "$KEY" == "osadm-008-3-files-check" ]]; then
+                    HOST="ubuntu@172.20.10.65"
+                    # Cek apakah ketiga file ada di folder verifikasi
+                    CHECK_FILES=$(ssh -n -o StrictHostKeyChecking=no "$HOST" "ls ~/verify-dir-0083/file1.txt ~/verify-dir-0083/file2.txt ~/verify-dir-0083/file3.txt >/dev/null 2>&1 && echo OK || echo FAIL")
+
+                    if [[ "$CHECK_FILES" == "OK" ]]; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: file1.txt, file2.txt, or file3.txt missing in verify-dir-0083"
+                    fi
+
+                # ===================== OSADM-008-4 BRANCH & MERGE =====================
+                elif [[ "$LAB_ID" == "OSADM-008-4" && "$KEY" == "osadm-008-4-merge-log" ]]; then
+                    HOST="ubuntu@172.20.10.65"
+                    # Cari commit spesifik penyelesaian konflik
+                    OUT_LOG=$(ssh -n -o StrictHostKeyChecking=no "$HOST" "cd ~/our-project-kelompok*-sijax && git log --oneline || echo FAIL")
+
+                    if echo "$OUT_LOG" | grep -qi "Resolve merge conflict"; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: Commit 'Resolve merge conflict' not found in git log"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-008-4" && "$KEY" == "osadm-008-4-content-check" ]]; then
+                    HOST="ubuntu@172.20.10.65"
+                    # Cek apakah README.md berisi baris dari main DAN feature branch
+                    OUT_README=$(ssh -n -o StrictHostKeyChecking=no "$HOST" "cat ~/verify-dir-0084/README.md || echo FAIL")
+
+                    # Cek minimal 2 baris kunci hasil merge
+                    HAS_MAIN=$(echo "$OUT_README" | grep -qi "Update langsung dari main" && echo OK || echo NO)
+                    HAS_FEAT=$(echo "$OUT_README" | grep -qi "Update dari feature" && echo OK || echo NO)
+
+                    if [[ "$HAS_MAIN" == "OK" ]] && [[ "$HAS_FEAT" == "OK" ]]; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: README.md does not contain combined content from main and feature"
+                    fi
+
+                # ===================== QUIZ 002-1 =====================
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-002-1" && "$KEY" == "intnet_name_ok" ]]; then
+                    NET_NAME="intnet-quiz002-1-kelompokx-sijax"
+                    OUTPUT=$(openstack network list -f value -c Name 2>/dev/null)
+                    if echo "$OUTPUT" | grep -Fxq "$NET_NAME"; then
+                        DATA["$KEY"]="OK"
+                    else
+                        DATA["$KEY"]="Error: internal network not found"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-002-1" && "$KEY" == "intsubnet_cidr_ok" ]]; then
+                    OUTPUT=$(openstack subnet show intsubnet-quiz002-1-kelompokx-sijax -f json 2>/dev/null || echo "")
+                    CIDR=$(echo "$OUTPUT" | jq -r '.cidr // empty')
+                    EXPECTED_CIDR="192.30.${X_INT}.0/24"
+                    if [[ "$CIDR" == "$EXPECTED_CIDR" ]]; then
+                        DATA["$KEY"]="OK"
+                    else
+                        DATA["$KEY"]="Error: wrong internal subnet CIDR (expected $EXPECTED_CIDR, got $CIDR)"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-002-1" && "$KEY" == "router_iface_ok" ]]; then
+                    OUTPUT=$(openstack router show ro-horizon-kelompokx-sijax -f json 2>/dev/null || echo "")
+                    SUBNETS=$(echo "$OUTPUT" | jq -r '.interfaces_info[].subnet_id // empty')
+                    SUBNET_ID=$(openstack subnet show intsubnet-quiz002-1-kelompokx-sijax -f json 2>/dev/null | jq -r '.id // empty')
+                    if echo "$SUBNETS" | grep -Fxq "$SUBNET_ID"; then
+                        DATA["$KEY"]="OK"
+                    else
+                        DATA["$KEY"]="Error: router not connected to quiz subnet"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-002-1" && "$KEY" == "floating_ip_ok" ]]; then
+                    OUTPUT=$(openstack floating ip list -f json 2>/dev/null || echo "[]")
+                    HAS_FIP=$(echo "$OUTPUT" | jq -r --arg ip "$FLOATINGIP" '
+                      .[]?
+                      | select(."Floating IP Address" == $ip)
+                      | ."Floating IP Address"
+                    ' | head -n1)
+                    if [[ "$HAS_FIP" == "$FLOATINGIP" ]]; then
+                        DATA["$KEY"]="OK"
+                    else
+                        DATA["$KEY"]="Error: floating IP $FLOATINGIP not found"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-002-1" && "$KEY" == "secgroup_name_ok" ]]; then
+                    SG_NAME="scg-quiz002-1-kelompokx-sijax"
+                    OUTPUT=$(openstack security group list -f value -c Name 2>/dev/null)
+                    if echo "$OUTPUT" | grep -Fxq "$SG_NAME"; then
+                        DATA["$KEY"]="OK"
+                    else
+                        DATA["$KEY"]="Error: security group not found"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-002-1" && "$KEY" == "secgroup_rules_ok" ]]; then
+                    OUTPUT=$(openstack security group rule list scg-quiz002-1-kelompokx-sijax -f json 2>/dev/null || echo "[]")
+                    HAS_ICMP=$(echo "$OUTPUT" | jq -r '
+                      .[]?
+                      | select(."IP Protocol" == "icmp"
+                               and .Direction == "ingress")
+                      | .ID
+                    ' | head -n1)
+                    HAS_SSH=$(echo "$OUTPUT" | jq -r '
+                      .[]?
+                      | select(."IP Protocol" == "tcp"
+                               and ."Port Range" == "22:22"
+                               and .Direction == "ingress")
+                      | .ID
+                    ' | head -n1)
+                    HAS_HTTP=$(echo "$OUTPUT" | jq -r '
+                      .[]?
+                      | select(."IP Protocol" == "tcp"
+                               and ."Port Range" == "80:80"
+                               and .Direction == "ingress")
+                      | .ID
+                    ' | head -n1)
+                    HAS_HTTPS=$(echo "$OUTPUT" | jq -r '
+                      .[]?
+                      | select(."IP Protocol" == "tcp"
+                               and ."Port Range" == "443:443"
+                               and .Direction == "ingress")
+                      | .ID
+                    ' | head -n1)
+                    if [[ -n "$HAS_ICMP" && -n "$HAS_SSH" && -n "$HAS_HTTP" && -n "$HAS_HTTPS" ]]; then
+                        DATA["$KEY"]="OK"
+                    else
+                        DATA["$KEY"]="Error: missing rules (ICMP=$HAS_ICMP, SSH=$HAS_SSH, HTTP=$HAS_HTTP, HTTPS=$HAS_HTTPS)"
+                    fi
+
+                # ===================== QUIZ 002-2 =====================
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-002-2" && "$KEY" == "intnet_deleted" ]]; then
+                    NET_NAME="intnet-quiz002-1-kelompokx-sijax"
+                    OUTPUT=$(openstack network list -f value -c Name 2>/dev/null)
+                    if echo "$OUTPUT" | grep -Fxq "$NET_NAME"; then
+                        DATA["$KEY"]="Error: internal network masih ada"
+                    else
+                        DATA["$KEY"]="OK"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-002-2" && "$KEY" == "intsubnet_deleted" ]]; then
+                    SUBNET_NAME="intsubnet-quiz002-1-kelompokx-sijax"
+                    OUTPUT=$(openstack subnet list -f value -c Name 2>/dev/null)
+                    if echo "$OUTPUT" | grep -Fxq "$SUBNET_NAME"; then
+                        DATA["$KEY"]="Error: internal subnet masih ada"
+                    else
+                        DATA["$KEY"]="OK"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-002-2" && "$KEY" == "router_iface_unset" ]]; then
+                    OUTPUT=$(openstack router show ro-horizon-kelompokx-sijax -f json 2>/dev/null || echo "")
+                    # Cek apakah ada interface yang menghubung ke intsubnet-quiz002-1-kelompokx-sijax
+                    QUIZ_SUBNET_ID=$(openstack subnet show intsubnet-quiz002-1-kelompokx-sijax -f json 2>/dev/null | jq -r '.id // empty')
+                    SUBNETS=$(echo "$OUTPUT" | jq -r '.interfaces_info[].subnet_id // empty')
+                    if [[ -z "$QUIZ_SUBNET_ID" ]]; then
+                        # Subnet sudah dihapus, berarti interface pasti tidak ada
+                        DATA["$KEY"]="OK"
+                    elif echo "$SUBNETS" | grep -Fxq "$QUIZ_SUBNET_ID"; then
+                        # Interface masih ada
+                        DATA["$KEY"]="Error: router masih connected ke quiz subnet"
+                    else
+                        # Interface sudah dilepas
+                        DATA["$KEY"]="OK"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-002-2" && "$KEY" == "floating_ip_deleted" ]]; then
+                    OUTPUT=$(openstack floating ip list -f json 2>/dev/null || echo "[]")
+                    # Cek apakah floating IP dari quiz masih ada
+                    HAS_FIP=$(echo "$OUTPUT" | jq -r --arg ip "$FLOATINGIP" '.[] | select(.Floating_IP_Address==$ip) | .Floating_IP_Address' | head -n1)
+                    if [[ -z "$HAS_FIP" || "$HAS_FIP" != "$FLOATINGIP" ]]; then
+                        DATA["$KEY"]="OK"
+                    else
+                        DATA["$KEY"]="Error: floating IP $FLOATINGIP masih ada"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-002-2" && "$KEY" == "secgroup_deleted" ]]; then
+                    SG_NAME="scg-quiz002-1-kelompokx-sijax"
+                    OUTPUT=$(openstack security group list -f value -c Name 2>/dev/null)
+                    if echo "$OUTPUT" | grep -Fxq "$SG_NAME"; then
+                        DATA["$KEY"]="Error: security group masih ada"
+                    else
+                        DATA["$KEY"]="OK"
+                    fi
+
+                # ===================== OSADM-QUIZ-003-1 =====================
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-003-1" && "$KEY" == "quiz3_server_ok" ]]; then
+                    NAME="2048-quiz003-1-kelompokx-sijax"
+                    OUTPUT=$(openstack server show "$NAME" -f json 2>/dev/null || echo "")
+
+                    FLAVOR=$(echo "$OUTPUT" | jq -r '.flavor.original_name // empty')
+                    IMAGE=$(echo "$OUTPUT"  | jq -r '.image // empty')
+                    KEYNAME=$(echo "$OUTPUT" | jq -r '.key_name // empty')
+                    SG_LIST=$(echo "$OUTPUT" | jq -r '.security_groups[].name // empty' | sort | tr '\n' ' ')
+                    NETS=$(echo "$OUTPUT" | jq -r '.addresses | keys[]? // empty' | tr '\n' ' ')
+
+                    EXP_FLAVOR="quiz003-1-medium-kelompokx-sijax"
+                    EXP_IMAGE="ubuntu24.04-quiz003-1-kelompokx-sijax"
+                    EXP_KEY="key-quiz003-1-kelompokx-sijax"
+                    EXP_SG="sg-quiz003-1-kelompokx-sijax"
+                    EXP_NET="net-quiz003-1-kelompokx-sijax"
+
+                    if [[ "$FLAVOR" == "$EXP_FLAVOR" && "$IMAGE" == *"$EXP_IMAGE"* && \
+                          "$KEYNAME" == "$EXP_KEY" && "$SG_LIST" == *"$EXP_SG"* && \
+                          "$NETS" == *"$EXP_NET"* ]]; then
+                        DATA["$KEY"]="OK"
+                    else
+                        DATA["$KEY"]="Error: server spec mismatch"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-003-1" && "$KEY" == "quiz3_net_ok" ]]; then
+                    OUTPUT=$(openstack subnet show subnet-quiz003-1-kelompokx-sijax -f json 2>/dev/null || echo "")
+                    CIDR=$(echo "$OUTPUT" | jq -r '.cidr // empty')
+                    GATEWAY=$(echo "$OUTPUT" | jq -r '.gateway_ip // empty')
+                    POOL_START=$(echo "$OUTPUT" | jq -r '.allocation_pools[0].start // empty')
+                    POOL_END=$(echo "$OUTPUT" | jq -r '.allocation_pools[0].end // empty')
+                    DNS=$(echo "$OUTPUT" | jq -r '.dns_nameservers[0] // empty')
+
+                    EXPECTED_CIDR="172.19.${X_INT}.0/24"
+                    EXPECTED_GW="172.19.${X_INT}.1"
+                    EXPECTED_START="172.19.${X_INT}.35"
+                    EXPECTED_END="172.19.${X_INT}.75"
+                    EXPECTED_DNS="8.8.8.8"
+
+                    if [[ "$CIDR" == "$EXPECTED_CIDR" && "$GATEWAY" == "$EXPECTED_GW" && \
+                          "$POOL_START" == "$EXPECTED_START" && "$POOL_END" == "$EXPECTED_END" && \
+                          "$DNS" == "$EXPECTED_DNS" ]]; then
+                        DATA["$KEY"]="OK"
+                    else
+                        DATA["$KEY"]="Error: subnet spec mismatch"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-003-1" && "$KEY" == "quiz3_port_ok" ]]; then
+                    OUTPUT=$(openstack port show port-quiz003-1-kelompokx-sijax -f json 2>/dev/null || echo "")
+                    FIXED_IP=$(echo "$OUTPUT" | jq -r '.fixed_ips[0].ip_address // empty')
+                    SUBNET_ID=$(echo "$OUTPUT" | jq -r '.fixed_ips[0].subnet_id // empty')
+                    DEVICE_ID=$(echo "$OUTPUT" | jq -r '.device_id // empty')
+
+                    EXPECTED_IP="172.19.${X_INT}.47"
+                    EXPECTED_SUBNET_ID=$(openstack subnet show subnet-quiz003-1-kelompokx-sijax -f json 2>/dev/null | jq -r '.id // empty')
+                    SERVER_ID=$(openstack server show 2048-quiz003-1-kelompokx-sijax -f json 2>/dev/null | jq -r '.id // empty')
+
+                    if [[ "$FIXED_IP" == "$EXPECTED_IP" && \
+                          "$SUBNET_ID" == "$EXPECTED_SUBNET_ID" && \
+                          "$DEVICE_ID" == "$SERVER_ID" ]]; then
+                        DATA["$KEY"]="OK"
+                    else
+                        DATA["$KEY"]="Error: port or fixed IP mismatch"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-003-1" && "$KEY" == "quiz3_sg_ok" ]]; then
+                    OUTPUT=$(openstack security group rule list sg-quiz003-1-kelompokx-sijax -f json 2>/dev/null || echo "[]")
+                    HAS_ICMP=$(echo "$OUTPUT" | jq -r '
+                      .[]?
+                      | select(."IP Protocol" == "icmp" and .Direction == "ingress")
+                      | .ID
+                    ' | head -n1)
+                    HAS_SSH=$(echo "$OUTPUT" | jq -r '
+                      .[]?
+                      | select(."IP Protocol" == "tcp"
+                               and ."Port Range" == "22:22"
+                               and .Direction == "ingress")
+                      | .ID
+                    ' | head -n1)
+                    HAS_HTTP=$(echo "$OUTPUT" | jq -r '
+                      .[]?
+                      | select(."IP Protocol" == "tcp"
+                               and ."Port Range" == "80:80"
+                               and .Direction == "ingress")
+                      | .ID
+                    ' | head -n1)
+
+                    if [[ -n "$HAS_ICMP" && -n "$HAS_SSH" && -n "$HAS_HTTP" ]]; then
+                        DATA["$KEY"]="OK"
+                    else
+                        DATA["$KEY"]="Error: missing ICMP/SSH/HTTP rule"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-003-1" && "$KEY" == "quiz3_fip_ok" ]]; then
+                    NAME="2048-quiz003-1-kelompokx-sijax"
+                    OUTPUT=$(openstack server show "$NAME" -f json 2>/dev/null || echo "")
+                    HAS_FIP=$(echo "$OUTPUT" | jq -r '
+                      .addresses
+                      | ..?
+                      | strings
+                      | select(test("^172\\.20\\.10\\."))
+                    ' | sort | head -n1)
+
+                    if [[ "$HAS_FIP" == "$FLOATINGIP" ]]; then
+                        DATA["$KEY"]="OK"
+                    else
+                        DATA["$KEY"]="Error: wrong or missing floating IP (expected '"$FLOATINGIP"', got '${HAS_FIP:-none}')"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-003-1" && "$KEY" == "quiz3_nginx_2048_ok" ]]; then
+                    NAME="2048-quiz003-1-kelompokx-sijax"
+                    OUTPUT=$(openstack server show "$NAME" -f json 2>/dev/null || echo "")
+                    FIP=$(echo "$OUTPUT" | jq -r '
+                      .addresses
+                      | ..?
+                      | strings
+                      | select(test("^172\\.20\\.10\\."))
+                    ' | sort | head -n1)
+
+                    if [[ -z "$FIP" ]]; then
+                        DATA["$KEY"]="Error: no floating IP to test"
+                    else
+                        HTTP_OUT=$(curl -m 5 -s "http://$FIP/" || true)
+                        # Cek minimal ada teks '2048' di halaman (game 2048)
+                        if echo "$HTTP_OUT" | grep -qi "2048"; then
+                            DATA["$KEY"]="OK"
+                        else
+                            DATA["$KEY"]="Error: 2048 app not accessible on $FIP"
+                        fi
+                    fi
+
+                # ===================== OSADM-QUIZ-004-1 =====================
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-004-1" && "$KEY" == "vol_2048_created_ok" ]]; then
+                    VOL_NAME="vol-2048-kelompokx-sijax"
+                    OUTPUT=$(openstack volume show "$VOL_NAME" -f json 2>/dev/null || echo "")
+                    
+                    SIZE=$(echo "$OUTPUT" | jq -r '.size // empty')
+                    
+                    if [[ "$SIZE" == "2" ]]; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: volume not found or wrong size (size=$SIZE)"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-004-1" && "$KEY" == "vol_snapshot_created_ok" ]]; then
+                    SNAP_NAME="snap-vol2048-kelompokx-sijax"
+                    OUTPUT=$(openstack volume snapshot show "$SNAP_NAME" -f json 2>/dev/null || echo "")
+                    
+                    STATUS=$(echo "$OUTPUT" | jq -r '.status // empty')
+                    
+                    if [[ "$STATUS" == "available" ]]; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: snapshot not found or status is $STATUS"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-004-1" && "$KEY" == "vm_snapshot_created_ok" ]]; then
+                    SNAP_NAME="snap-vm2048-kelompokx-sijax"
+                    OUTPUT=$(openstack image show "$SNAP_NAME" -f json 2>/dev/null || echo "")
+                    
+                    STATUS=$(echo "$OUTPUT" | jq -r '.status // empty')
+                    
+                    if [[ "$STATUS" == "active" ]]; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: VM snapshot not found or status is $STATUS"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-004-1" && "$KEY" == "vm_rescue_created_ok" ]]; then
+                    VM_NAME="vm2048rescue-kelompokx-sijax"
+                    VM_STATUS=$(openstack server list | grep "^| [0-9a-f]*.*$VM_NAME" | grep -o "ACTIVE\|SHUTOFF" | head -1)
+                    
+                    if [[ "$VM_STATUS" == "ACTIVE" ]]; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: VM rescue not found or status is $VM_STATUS"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-004-1" && "$KEY" == "vol_snapshot_attached_ok" ]]; then
+                    VOL_SNAP="vol-snap2048-kelompokx-sijax"
+                    OUTPUT=$(openstack volume show "$VOL_SNAP" -f json 2>/dev/null || echo "")
+                    
+                    STATUS=$(echo "$OUTPUT" | jq -r '.status // empty')
+                    ATTACHED=$(echo "$OUTPUT" | jq -r '.attachments[0].device // empty')
+                    
+                    if [[ "$STATUS" == "in-use" && "$ATTACHED" == /dev/vd* ]]; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: volume snapshot not attached (status=$STATUS, device=$ATTACHED)"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-004-1" && "$KEY" == "backup_mounted_and_app_ok" ]]; then
+                    FIP="172.20.10.61"  # IP ke-10 dari range 59-68 untuk 2048-quiz003-1
+                    
+                    # Cek mount point
+                    MOUNT_CHECK=$(ssh -n -o StrictHostKeyChecking=no ubuntu@"$FIP" "mount | grep /backup" 2>/dev/null || echo "")
+                    
+                    # Cek aplikasi accessible
+                    HTTP_CHECK=$(curl -m 5 -s "http://$FIP/" 2>&1 | grep -i "2048\|game" | head -1)
+                    
+                    if [[ -n "$MOUNT_CHECK" && -n "$HTTP_CHECK" ]]; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: backup not mounted or app not accessible (mount=$MOUNT_CHECK, app=$HTTP_CHECK)"
+                    fi
+
+
+                # ===================== OSADM-QUIZ-005-1 =====================
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-005-1" && "$KEY" == "haproxy_vm_ok" ]]; then
+                    HAPROXY_STATUS=$(openstack server list | grep "^| [0-9a-f]*.*haproxy-kelompokx-sijax" | grep -o "ACTIVE\|SHUTOFF" | head -1)
+                    
+                    if [[ "$HAPROXY_STATUS" == "ACTIVE" ]]; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: HAProxy VM status is $HAPROXY_STATUS"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-005-1" && "$KEY" == "backends_vm_ok" ]]; then
+                    BACKEND1_STATUS=$(openstack server list | grep "^| [0-9a-f]*.*backend1-kelompokx-sijax" | grep -o "ACTIVE\|SHUTOFF" | head -1)
+                    BACKEND2_STATUS=$(openstack server list | grep "^| [0-9a-f]*.*backend2-kelompokx-sijax" | grep -o "ACTIVE\|SHUTOFF" | head -1)
+                    
+                    if [[ "$BACKEND1_STATUS" == "ACTIVE" && "$BACKEND2_STATUS" == "ACTIVE" ]]; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: Backend1=$BACKEND1_STATUS, Backend2=$BACKEND2_STATUS"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-005-1" && "$KEY" == "haproxy_http_weighted_ok" ]]; then
+                    HAPROXY_FIP="172.20.10.63"
+                    
+                    CONFIG=$(sshpass -p "haproxy" ssh -n -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+                        kelompokxsijax@$HAPROXY_FIP "cat /etc/haproxy/haproxy.cfg" 2>/dev/null)
+                    
+                    # Cek weighted config: backend1 weight 2, backend2 weight 1
+                    B1_WEIGHT=$(echo "$CONFIG" | grep "192.70.1.12:80" | grep -o "weight [0-9]*" | awk '{print $2}')
+                    B2_WEIGHT=$(echo "$CONFIG" | grep "192.70.1.13:80" | grep -o "weight [0-9]*" | awk '{print $2}')
+                    
+                    if [[ "$B1_WEIGHT" == "2" && "$B2_WEIGHT" == "1" ]]; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: Weights not correct (B1=$B1_WEIGHT, B2=$B2_WEIGHT)"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-005-1" && "$KEY" == "haproxy_ssh_timeout_ok" ]]; then
+                    HAPROXY_FIP="172.20.10.63"
+                    
+                    CONFIG=$(sshpass -p "haproxy" ssh -n -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+                        kelompokxsijax@$HAPROXY_FIP "cat /etc/haproxy/haproxy.cfg" 2>/dev/null)
+                    
+                    # Cek timeout 2700s (45 menit)
+                    CLIENT_LINE=$(echo "$CONFIG" | awk '
+                        /frontend ssh_front/ {in_front=1; next}
+                        in_front && /timeout client/ {print; in_front=0}
+                    ')
+                    SERVER_LINE=$(echo "$CONFIG" | awk '
+                        /backend ssh_back/ {in_back=1; next}
+                        in_back && /timeout server/ {print; in_back=0}
+                    ')
+
+                    TIMEOUT_CLIENT_RAW=$(echo "$CLIENT_LINE" | awk '{print $NF}')
+                    TIMEOUT_SERVER_RAW=$(echo "$SERVER_LINE" | awk '{print $NF}')
+                   
+                    OK_CLIENT=false
+                    OK_SERVER=false
+
+                    # client: 2700s atau 45m
+                    if [[ "$TIMEOUT_CLIENT_RAW" == "2700s" || "$TIMEOUT_CLIENT_RAW" == "45m" ]]; then
+                        OK_CLIENT=true
+                    fi
+
+                    # server: 2700s atau 45m
+                    if [[ "$TIMEOUT_SERVER_RAW" == "2700s" || "$TIMEOUT_SERVER_RAW" == "45m" ]]; then
+                        OK_SERVER=true
+                    fi
+
+                    if [[ "$OK_CLIENT" == true && "$OK_SERVER" == true ]]; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: Timeout not 2700s/45m (client=$TIMEOUT_CLIENT_RAW, server=$TIMEOUT_SERVER_RAW)"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-005-1" && "$KEY" == "haproxy_healthcheck_ok" ]]; then
+                    HAPROXY_FIP="172.20.10.63"
+                    
+                    CONFIG=$(sshpass -p "haproxy" ssh -n -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+                        kelompokxsijax@$HAPROXY_FIP "cat /etc/haproxy/haproxy.cfg" 2>/dev/null)
+                    
+                    # Cek option check ada di config
+                    if echo "$CONFIG" | grep -q "option httpchk\|option tcp-check" && \
+                       echo "$CONFIG" | grep -q "check"; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: Healthcheck not configured"
+                    fi
+
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-005-1" && "$KEY" == "haproxy_http_weighted_verify_ok" ]]; then
+                    HAPROXY_FIP="172.20.10.63"
+                    B1_COUNT=0
+                    B2_COUNT=0
+                    
+                    # Curl 9x: expect ~6 ke backend1, ~3 ke backend2
+                    for i in {1..9}; do
+                        RESPONSE=$(curl -s --max-time 5 "http://$HAPROXY_FIP/" 2>&1)
+                        if echo "$RESPONSE" | grep -qi "Backend1\|192.70.1.11"; then
+                            ((B1_COUNT++))
+                        elif echo "$RESPONSE" | grep -qi "Backend2\|192.70.1.12"; then
+                            ((B2_COUNT++))
+                        fi
+                    done
+                    
+                    # Weighted roundrobin: B1 harus ~2x B2 (6:3 ratio, accept 5:4 atau 6:3)
+                    if [[ $B1_COUNT -ge 5 && $B2_COUNT -ge 3 && $((B1_COUNT + B2_COUNT)) -eq 9 ]]; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: Weighted ratio incorrect (B1=$B1_COUNT, B2=$B2_COUNT)"
+                    fi
+
 
 		# ===================== OSADM-QUIZ-006-1 =====================
 		elif [[ "$LAB_ID" == "OSADM-QUIZ-006-1" && "$KEY" == "stack_name_ok" ]]; then
-			SUFFIX="$EXPECTED_SUFFIX"
-			STACK_NAME="instance-stack-${SUFFIX}"
-
-			STACK_STATUS=$(openstack stack show "$STACK_NAME" -f value -c stack_status 2>/dev/null)
-			if [[ "$STACK_STATUS" == *"COMPLETE" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Stack $STACK_NAME not ready (Status: $STACK_STATUS)"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-006-1" && "$KEY" == "autoscaling_quiz_config_ok" ]]; then
-			SUFFIX="$EXPECTED_SUFFIX"
-			STACK_NAME="instance-stack-${SUFFIX}"
-
-			TEMPLATE=$(openstack stack template show "$STACK_NAME" 2>/dev/null)
-
-			MIN_SIZE=$(echo "$TEMPLATE" | grep "min_size:" | awk '{print $2}' | tr -d ',')
-			MINSZ="${MIN_SIZE//[!0-9]/}"
-
-			MAX_SIZE=$(echo "$TEMPLATE" | grep "max_size:" | awk '{print $2}' | tr -d ',')
-			MAXSZ="${MAX_SIZE//[!0-9]/}"
-
-			THRESHOLDS=$(echo "$TEMPLATE" | grep "threshold:" | awk '{print $2}' | tr -d ',')
-			CPU_HIGH=$(echo "$THRESHOLDS" | sort -nr | head -1)
-			CPU_LOW=$(echo "$THRESHOLDS" | sort -n | head -1)
-
-			if [[ "$MAXSZ" == "2" && "$MINSZ" == "1" && \
-				  "$CPU_HIGH" == "150000000000" && "$CPU_LOW" == "45000000000" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Config Mismatch (Max:$MAXSZ, High:$CPU_HIGH, Low:$CPU_LOW)"
-			fi
+		    LOCAL_SUFFIX="kelompokx-sijax"
+		    STACK_NAME="instance-stack-${LOCAL_SUFFIX}"
+    
+		    # Simple check: grep UPDATE_COMPLETE atau CREATE_COMPLETE
+		    OUTPUT=$(openstack stack show "$STACK_NAME" 2>&1)
+    
+		    if echo "$OUTPUT" | grep -qi "UPDATE_COMPLETE\|CREATE_COMPLETE"; then
+		        DATA["$KEY"]="exists"
+		    else
+		        DATA["$KEY"]="Error: Stack not ready"
+		    fi
 
 		elif [[ "$LAB_ID" == "OSADM-QUIZ-006-1" && "$KEY" == "stack_events_scale_ok_quiz" ]]; then
-			SUFFIX="$EXPECTED_SUFFIX"
-			STACK_NAME="instance-stack-${SUFFIX}"
+		    LOCAL_SUFFIX="kelompokx-sijax"
+		    STACK_NAME="instance-stack-${LOCAL_SUFFIX}"
 
-			OUTPUT=$(openstack stack event list "$STACK_NAME" 2>/dev/null)
+		    OUTPUT=$(openstack stack event list "$STACK_NAME" 2>/dev/null)
 
-			S_OUT=$(echo "$OUTPUT" | grep -i "scale_out_policy" | grep "SIGNAL_COMPLETE" | wc -l)
-			S_IN=$(echo "$OUTPUT" | grep -i "scale_in_policy" | grep "SIGNAL_COMPLETE" | wc -l)
+		    # Untuk quiz: minimal 1 scale_out dan 1 scale_in SIGNAL_COMPLETE
+		    SCALE_OUT_COUNT=$(echo "$OUTPUT" | grep "\.scale_out_policy\]" | grep "SIGNAL_COMPLETE" | wc -l)
+		    SCALE_IN_COUNT=$(echo "$OUTPUT" | grep "\.scale_in_policy\]" | grep "SIGNAL_COMPLETE" | wc -l)
 
-			if [[ $S_OUT -ge 1 && $S_IN -ge 1 ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Need real scaling activity (Scale-Out: $S_OUT, Scale-In: $S_IN)"
-			fi
+		    if [[ $SCALE_OUT_COUNT -ge 1 && $SCALE_IN_COUNT -ge 1 ]]; then
+		        DATA["$KEY"]="exists"
+		    else
+		        DATA["$KEY"]="Error: need >=1 scale out and >=1 scale in (got out=$SCALE_OUT_COUNT in=$SCALE_IN_COUNT)"
+		    fi
+
+		elif [[ "$LAB_ID" == "OSADM-QUIZ-006-1" && "$KEY" == "autoscaling_quiz_config_ok" ]]; then
+		    LOCAL_SUFFIX="kelompokx-sijax"
+		    STACK_NAME="instance-stack-${LOCAL_SUFFIX}"
+    		
+    		# Ambil template
+		    TEMPLATE=$(openstack stack template show "$STACK_NAME" 2>/dev/null)
+    
+		    # Parse
+		    MIN_SIZE=$(echo "$TEMPLATE" | grep "min_size:" | cut -d'#' -f1 | awk '{print $2}' | tr -d ',:')
+		    MAX_SIZE=$(echo "$TEMPLATE" | grep "max_size:" | cut -d'#' -f1 | awk '{print $2}' | tr -d ',:')
+		    DESIRED=$(echo "$TEMPLATE" | grep "desired_capacity:" | cut -d'#' -f1 | awk '{print $2}' | tr -d ',:')
+    
+		    THRESHOLDS=$(echo "$TEMPLATE" | grep "threshold:" | cut -d'#' -f1 | awk '{print $2}' | tr -d ',:')
+		    CPU_HIGH=$(echo "$THRESHOLDS" | head -1)
+		    CPU_LOW=$(echo "$THRESHOLDS" | tail -1)
+    
+		    # QUIZ require: min=1, max=2, desired=1, high=125000000000 (50%), low=37500000000 (15%)
+		    if [[ "$MIN_SIZE" == "1" ]] && [[ "$MAX_SIZE" == "2" ]] && \
+		       [[ "$DESIRED" == "1" ]] && [[ "$CPU_HIGH" == "150000000000" ]] && [[ "$CPU_LOW" == "45000000000" ]]; then
+		        DATA["$KEY"]="exists"
+		    else
+		        DATA["$KEY"]="Error: Config (min=$MIN_SIZE max=$MAX_SIZE desired=$DESIRED high=$CPU_HIGH low=$CPU_LOW)"
+		    fi
 
 		# ===================== OSADM-QUIZ-007-1 =====================
 		elif [[ "$LAB_ID" == "QUIZ-007-1" && "$KEY" == "http_backend1_failover_ok" ]]; then
-			SUFFIX="$EXPECTED_SUFFIX"
-			RAW_ID="kelompok${GROUP_NUM}sija${CLASS_TYPE}"
+		    FIP="172.20.10.63"
+		    OK_COUNT=0
 
-			# Guru: 59 + 4 = 63. Siswa lain menyesuaikan range masing-masing.
-			FIP_FIFTH=$((FIP_RANGE_START_INT + 4))
-			TARGET_FIP="172.20.10.${FIP_FIFTH}"
+		    for i in {1..4}; do
+		        OUT=$(curl -s --max-time 5 "http://$FIP" 2>&1)
+		        if echo "$OUT" | grep -qi "backend1-kelompokx-sijax"; then
+		            ((OK_COUNT++))
+		        fi
+		    done
 
-			OK_COUNT=0
-			for i in {1..4}; do
-				OUT=$(curl -s --max-time 5 "http://$TARGET_FIP" 2>&1)
-				if echo "$OUT" | grep -qi "backend1-$SUFFIX"; then
-					((OK_COUNT++))
-				fi
-			done
-
-			if [[ $OK_COUNT -eq 4 ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Only $OK_COUNT/4 response from Backend1 at $TARGET_FIP"
-			fi
+		    if [[ $OK_COUNT -eq 4 ]]; then
+		        DATA["$KEY"]="exists"
+		    else
+		        DATA["$KEY"]="Error: Only $OK_COUNT/4 curl ke Backend1"
+		    fi
 
 		elif [[ "$LAB_ID" == "QUIZ-007-1" && "$KEY" == "ssh_backend2_failover_ok" ]]; then
-			SUFFIX="$EXPECTED_SUFFIX"
-			RAW_ID="kelompok${GROUP_NUM}sija${CLASS_TYPE}"
+		    FIP="172.20.10.63"
+		    OUT=$(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+		        -p 2222 kelompokxsijax@$FIP "hostname" 2>&1)
 
-			FIP_FIFTH=$((FIP_RANGE_START_INT + 4))
-			TARGET_FIP="172.20.10.${FIP_FIFTH}"
-
-			OUT=$(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-				-o ConnectTimeout=5 -p 2222 "$RAW_ID@$TARGET_FIP" "hostname" 2>&1)
-
-			if echo "$OUT" | grep -qi "backend2-$SUFFIX"; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: SSH failover failed. Target $TARGET_FIP:2222 returned: $OUT"
-			fi
+		    if echo "$OUT" | grep -qi "backend2-kelompokx-sijax"; then
+		        DATA["$KEY"]="exists"
+		    else
+		        DATA["$KEY"]="Error: SSH got $OUT"
+		    fi
 
 		# ===================== OSADM-QUIZ-008-1 ENHANCED GRADING =====================
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-008-1" && "$KEY" == "quiz-008-1-branch-check" ]]; then
-			SUFFIX="$EXPECTED_SUFFIX"
-			RAW_ID="kelompok${GROUP_NUM}sija${CLASS_TYPE}"
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-008-1" ]]; then
+                    HOST="ubuntu@172.20.10.65"
+                    REPO_DIR="~/our-project-kelompok*-sijax"
 
-			FIP_SEVENTH=$((FIP_RANGE_START_INT + 6))
-			HOST="ubuntu@172.20.10.${FIP_SEVENTH}"
-			REPO_DIR="~/our-project-${SUFFIX}"
+                    if [[ "$KEY" == "quiz-008-1-branch-check" ]]; then
+                        # Cek apakah branch featureb pernah ada (lokal atau remote)
+                        OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" "cd $REPO_DIR && git branch -a || echo FAIL")
+                        if echo "$OUT" | grep -qi "feature-b"; then
+                            DATA["$KEY"]="exists"
+                        else
+                            DATA["$KEY"]="Error: Branch featureb-kelompokX not found"
+                        fi
 
-			OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" "cd $REPO_DIR && git branch -a" 2>/dev/null || echo "FAIL")
-			if echo "$OUT" | grep -qi "feature-b"; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Branch feature-b not found in $REPO_DIR"
-			fi
+                elif [[ "$KEY" == "quiz-008-1-feature-commit" ]]; then
+                    # Cek commit fitur sebelum merge
+                    OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" "cd $REPO_DIR && git log --all --oneline || echo FAIL")
+                    if echo "$OUT" | grep -qi "feature branch"; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: Feature commit not found"
+                    fi
 
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-008-1" && "$KEY" == "quiz-008-1-feature-commit" ]]; then
-			SUFFIX="$EXPECTED_SUFFIX"
+                elif [[ "$KEY" == "quiz-008-1-merge-log" ]]; then
+                    # Cek commit penyelesaian konflik
+                    OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" "cd $REPO_DIR && git log --oneline || echo FAIL")
+                    if echo "$OUT" | grep -qi "Resolve merge conflict"; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: Resolve conflict commit not found"
+                    fi
 
-			FIP_SEVENTH=$((FIP_RANGE_START_INT + 6))
-			HOST="ubuntu@172.20.10.${FIP_SEVENTH}"
-			REPO_DIR="~/our-project-${SUFFIX}"
+                elif [[ "$KEY" == "quiz-008-1-verify-dir" ]]; then
+                    # Cek keberadaan folder verifikasi
+                    ssh -n -o StrictHostKeyChecking=no "$HOST" "ls -d ~/verify-dir-0084 >/dev/null 2>&1"
+                    if [[ $? -eq 0 ]]; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: Directory verify-dir-0084 not found"
+                    fi
 
-			OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" "cd $REPO_DIR && git log --all --oneline" 2>/dev/null || echo "FAIL")
-			if echo "$OUT" | grep -qi "feature branch"; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Feature commit message not found"
-			fi
+                elif [[ "$KEY" == "quiz-008-1-content-check" ]]; then
+                    # Cek isi README.md hasil merge
+                    OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" "cat ~/verify-dir-0084/README.md 2>/dev/null || echo FAIL")
+                    HAS_MAIN=$(echo "$OUT" | grep -qi "main branch" && echo OK || echo NO)
+                    HAS_FEAT=$(echo "$OUT" | grep -qi "feature branch" && echo OK || echo NO)
 
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-008-1" && "$KEY" == "quiz-008-1-merge-log" ]]; then
-			SUFFIX="$EXPECTED_SUFFIX"
-
-			FIP_SEVENTH=$((FIP_RANGE_START_INT + 6))
-			HOST="ubuntu@172.20.10.${FIP_SEVENTH}"
-			REPO_DIR="~/our-project-${SUFFIX}"
-
-			OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" "cd $REPO_DIR && git log --oneline" 2>/dev/null || echo "FAIL")
-			if echo "$OUT" | grep -qi "Resolve merge conflict"; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Merge conflict resolution commit not found"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-008-1" && "$KEY" == "quiz-008-1-verify-dir" ]]; then
-			FIP_SEVENTH=$((FIP_RANGE_START_INT + 6))
-			HOST="ubuntu@172.20.10.${FIP_SEVENTH}"
-			VERIFY_DIR="~/verify-dir-0084"
-
-			ssh -n -o StrictHostKeyChecking=no "$HOST" "ls -d $VERIFY_DIR" >/dev/null 2>&1
-			if [[ $? -eq 0 ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Directory $VERIFY_DIR not found"
-			fi
-
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-008-1" && "$KEY" == "quiz-008-1-content-check" ]]; then
-			FIP_SEVENTH=$((FIP_RANGE_START_INT + 6))
-			HOST="ubuntu@172.20.10.${FIP_SEVENTH}"
-			VERIFY_DIR="~/verify-dir-0084"
-
-			OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" "cat $VERIFY_DIR/README.md" 2>/dev/null || echo "FAIL")
-			HAS_MAIN=$(echo "$OUT" | grep -qi "main branch" && echo OK || echo NO)
-			HAS_FEAT=$(echo "$OUT" | grep -qi "feature branch" && echo OK || echo NO)
-
-			if [[ "$HAS_MAIN" == "OK" && "$HAS_FEAT" == "OK" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: README.md content is not merged correctly"
-			fi
+                    if [[ "$HAS_MAIN" == "OK" && "$HAS_FEAT" == "OK" ]]; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: Content mismatch (Main and Feature content not combined)"
+                    fi
+                fi
 
 
-		# ===================== OSADM-QUIZ-009-1 =====================
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-009-1" && "$KEY" == "osadm-quiz-009-1-curl-check" ]]; then
-			SUFFIX="$EXPECTED_SUFFIX"
+                # ===================== OSADM-QUIZ-009-1 =====================
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-009-1" && "$KEY" == "osadm-quiz-009-1-curl-check" ]]; then
+                    HOST1="ubuntu@172.20.10.65"
+                    # Cek konten index.html di port 8081
+                    EXPECT_STR="Hi we are from kelompokx sijax in quiz-009-1"
+                    OUT1=$(ssh -n -o StrictHostKeyChecking=no "$HOST1" "curl -s http://localhost:8081 || echo FAIL")
 
-			# Konsisten dengan Quiz 008: IP ke-7 dari range (59 + 6 = 65)
-			FIP_SEVENTH=$((FIP_RANGE_START_INT + 6))
-			HOST1="ubuntu@172.20.10.${FIP_SEVENTH}"
+                    # Gunakan grep case-insensitive (-i) agar lebih fleksibel
+                    if echo "$OUT1" | grep -qi "$EXPECT_STR"; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: Web content mismatch or port 8081 inaccessible"
+                    fi
 
-			CLEAN_ID=$(echo "$SUFFIX" | tr '-' ' ')
-			EXPECT_STR="Hi we are from $CLEAN_ID in quiz-009-1"
+                # ===================== OSADM-010-2 =====================
+                elif [[ "$LAB_ID" == "OSADM-010-2" && "$KEY" == "osadm-010-2-curl-check" ]]; then
+                    # cek staging di node1
+                    HOST1="ubuntu@172.20.10.65"
+                    OUT1=$(ssh -n -o StrictHostKeyChecking=no "$HOST1" "curl -s http://localhost:8082 || true")
 
-			OUT1=$(ssh -n -o StrictHostKeyChecking=no "$HOST1" "curl -s --max-time 5 http://localhost:8081 || echo FAIL")
+                    # cek production di node2
+                    HOST2="ubuntu@172.20.10.66"
+                    OUT2=$(ssh -n -o StrictHostKeyChecking=no "$HOST2" "curl -s http://localhost:8082 || true")
 
-			if echo "$OUT1" | grep -qi "$EXPECT_STR"; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Web content mismatch or port 8081 inaccessible. Expected: '$EXPECT_STR' on $HOST1"
-			fi
+                    EXPECT_STR="Hi we are from kelompokX sijaX in Production"
 
-		# ===================== OSADM-010-2 =====================
-		elif [[ "$LAB_ID" == "OSADM-010-2" && "$KEY" == "osadm-010-2-curl-check" ]]; then
-			SUFFIX="$EXPECTED_SUFFIX"
-
-			FIP_SEVENTH=$((FIP_RANGE_START_INT + 6))
-			HOST1="ubuntu@172.20.10.${FIP_SEVENTH}"
-
-			FIP_EIGHTH=$((FIP_RANGE_START_INT + 7))
-			HOST2="ubuntu@172.20.10.${FIP_EIGHTH}"
-
-			CLEAN_ID=$(echo "$SUFFIX" | tr '-' ' ')
-			EXPECT_STR="Hi we are from $CLEAN_ID in Production"
-
-			OUT1=$(ssh -n -o StrictHostKeyChecking=no "$HOST1" "curl -s --max-time 5 http://localhost:8082 || echo FAIL")
-			OUT2=$(ssh -n -o StrictHostKeyChecking=no "$HOST2" "curl -s --max-time 5 http://localhost:8082 || echo FAIL")
-
-			if echo "$OUT1" | grep -qi "$EXPECT_STR" && echo "$OUT2" | grep -qi "$EXPECT_STR"; then
-				DATA["$KEY"]="exists"
-			else
-				ERR_MSG="Error: Content mismatch."
-				echo "$OUT1" | grep -qi "$EXPECT_STR" || ERR_MSG="$ERR_MSG Node1(Staging) FAIL."
-				echo "$OUT2" | grep -qi "$EXPECT_STR" || ERR_MSG="$ERR_MSG Node2(Production) FAIL."
-				DATA["$KEY"]="$ERR_MSG"
-			fi
+                    if echo "$OUT1" | grep -qi "$EXPECT_STR" && echo "$OUT2" | grep -qi "$EXPECT_STR"; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: Content mismatch on staging/production"
+                    fi
 
 		# ===================== OSADM-QUIZ-010-1 =====================
 		elif [[ "$LAB_ID" == "OSADM-QUIZ-010-1" && "$KEY" == "osadm-quiz-010-1-curl-check" ]]; then
-			SUFFIX="$EXPECTED_SUFFIX"
 
-			# Node 1: IP ke-7 dari range (Guru: 59 + 6 = 65)
-			FIP_SEVENTH=$((FIP_RANGE_START_INT + 6))
-			HOST1="ubuntu@172.20.10.${FIP_SEVENTH}"
+		    if ssh -n -o StrictHostKeyChecking=no ubuntu@172.20.10.65 \
+		        "curl -sf --connect-timeout 3 http://localhost:8083 >/dev/null" \
+		    && ssh -n -o StrictHostKeyChecking=no ubuntu@172.20.10.66 \
+		        "curl -sf --connect-timeout 3 http://localhost:8083 >/dev/null"; then
 
-			# Node 2: IP ke-8 dari range (Guru: 59 + 7 = 66)
-			FIP_EIGHTH=$((FIP_RANGE_START_INT + 7))
-			HOST2="ubuntu@172.20.10.${FIP_EIGHTH}"
-
-			CHECK_NODE1=$(ssh -n -o StrictHostKeyChecking=no "$HOST1" "curl -sf --connect-timeout 3 http://localhost:8083 >/dev/null && echo OK || echo FAIL" 2>/dev/null)
-			CHECK_NODE2=$(ssh -n -o StrictHostKeyChecking=no "$HOST2" "curl -sf --connect-timeout 3 http://localhost:8083 >/dev/null && echo OK || echo FAIL" 2>/dev/null)
-
-			if [[ "$CHECK_NODE1" == "OK" && "$CHECK_NODE2" == "OK" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				ERR_MSG="Error:"
-				[[ "$CHECK_NODE1" != "OK" ]] && ERR_MSG="$ERR_MSG Node1(8083) Down."
-				[[ "$CHECK_NODE2" != "OK" ]] && ERR_MSG="$ERR_MSG Node2(8083) Down."
-				DATA["$KEY"]="$ERR_MSG"
-			fi
+		        DATA["osadm-quiz-010-1-curl-check"]="exists"
+		    else
+		        DATA["osadm-quiz-010-1-curl-check"]="not_exists"
+		    fi
 		
                 # ===================== OSADM-011-2 =====================
                 elif [[ "$LAB_ID" == "OSADM-011-2" && "$KEY" == "monitoring_quiz_ok" ]]; then
@@ -2020,96 +1957,57 @@ function grade_lab() {
                         fi
                     fi
 
-		# ===================== gampang =====================
-		elif [[ "$LAB_ID" == "gampang" ]]; then
-		    SUFFIX="$EXPECTED_SUFFIX"
 
-		    if [[ "$KEY" == "image_name_oks" ]]; then
-		        EXPECTED_IMAGE_NAME="ubuntu24.04-quiz003-1-${SUFFIX}"
-		        OUTPUT=$(openstack image list -f value -c Name 2>/dev/null)
-		        if echo "$OUTPUT" | grep -Fxq "$EXPECTED_IMAGE_NAME"; then
-		            DATA["$KEY"]="OK"
-		        else
-		            DATA["$KEY"]="Error: image '$EXPECTED_IMAGE_NAME' not found"
-		        fi
-		    fi
+                # ===================== OSADM-001-2 / 001-3 existing =====================
+                elif [[ "$KEY" == "image_name_ok" ]]; then
+                    OUTPUT=$(openstack image list -f value -c Name 2>/dev/null)
+                    if echo "$OUTPUT" | grep -Fxq "$EXPECTED_IMAGE_NAME"; then
+                        DATA["$KEY"]="OK"
+                    else
+                        DATA["$KEY"]="Error: image name not match"
+                    fi
 
-		# ===================== OSADM-001-2 / 001-3 existing =====================
-		elif [[ "$LAB_ID" == "OSADM-001-2" || "$LAB_ID" == "OSADM-001-3" ]]; then
+                elif [[ "$KEY" == "flavor_name_ok" ]]; then
+                    OUTPUT=$(openstack flavor list -f value -c Name 2>/dev/null)
+                    if echo "$OUTPUT" | grep -Fxq "$EXPECTED_FLAVOR_NAME"; then
+                        DATA["$KEY"]="OK"
+                    else
+                        DATA["$KEY"]="Error: flavor name not match"
+                    fi
 
-			SUFFIX="$EXPECTED_SUFFIX"
+                elif [[ "$KEY" == "flavor_spec_ok" ]]; then
+                    OUTPUT=$(openstack flavor show "$EXPECTED_FLAVOR_NAME" -f json 2>/dev/null || echo "")
+                    RAM=$(echo "$OUTPUT"   | jq -r '.ram // empty')
+                    DISK=$(echo "$OUTPUT"  | jq -r '.disk // empty')
+                    VCPUS=$(echo "$OUTPUT" | jq -r '.vcpus // empty')
+                    if [[ "$LAB_ID" == "OSADM-001-2" ]]; then
+                        [[ "$RAM" == "512" && "$DISK" == "4" && "$VCPUS" == "1" ]] && DATA["$KEY"]="OK" || DATA["$KEY"]="Error: flavor spec mismatch"
+                    else
+                        [[ "$RAM" == "1024" && "$DISK" == "4" && "$VCPUS" == "1" ]] && DATA["$KEY"]="OK" || DATA["$KEY"]="Error: flavor spec mismatch"
+                    fi
 
-			if [[ "$KEY" == "image_name_ok" ]]; then
-				EXPECTED_IMAGE_NAME="ubuntu24.04-quiz003-1-${SUFFIX}"
-				OUTPUT=$(openstack image list -f value -c Name 2>/dev/null)
-				if echo "$OUTPUT" | grep -Fxq "$EXPECTED_IMAGE_NAME"; then
-					DATA["$KEY"]="OK"
-				else
-					DATA["$KEY"]="Error: image '$EXPECTED_IMAGE_NAME' not found"
-				fi
+                elif [[ "$KEY" == "keypair_name_ok" ]]; then
+                    OUTPUT=$(openstack keypair list -f value -c Name 2>/dev/null)
+                    if echo "$OUTPUT" | grep -Fxq "$EXPECTED_KEYPAIR_NAME"; then
+                        DATA["$KEY"]="OK"
+                    else
+                        DATA["$KEY"]="Error: keypair name not match"
+                    fi
 
-			elif [[ "$KEY" == "flavor_name_ok" ]]; then
-				EXPECTED_FLAVOR_NAME="flavor-${SUFFIX}"
-				OUTPUT=$(openstack flavor list -f value -c Name 2>/dev/null)
-				if echo "$OUTPUT" | grep -Fxq "$EXPECTED_FLAVOR_NAME"; then
-					DATA["$KEY"]="OK"
-				else
-					DATA["$KEY"]="Error: flavor '$EXPECTED_FLAVOR_NAME' not found"
-				fi
+                else
+                    # fallback generic command untuk lab lain
+                    CMD=$(echo "$CMD_TEMPLATE" | sed \
+                        -e "s/PLACEHOLDER/${EXPECTED_SUFFIX}/g" \
+                        -e "s/FIP_PLACEHOLDER/${FLOATINGIP}/g" \
+                        -e "s/X_INT/${X_INT}/g")
 
-			elif [[ "$KEY" == "flavor_spec_ok" ]]; then
-				EXPECTED_FLAVOR_NAME="flavor-${SUFFIX}"
-				OUTPUT=$(openstack flavor show "$EXPECTED_FLAVOR_NAME" -f json 2>/dev/null || echo "{}")
-				RAM=$(echo "$OUTPUT" | jq -r '.ram // empty')
-				DISK=$(echo "$OUTPUT" | jq -r '.disk // empty')
-				VCPUS=$(echo "$OUTPUT" | jq -r '.vcpus // empty')
-
-				if [[ "$LAB_ID" == "OSADM-001-2" ]]; then
-					REQ_RAM="512"
-				else
-					REQ_RAM="1024"
-				fi
-
-				if [[ "$RAM" == "$REQ_RAM" && "$DISK" == "4" && "$VCPUS" == "1" ]]; then
-					DATA["$KEY"]="OK"
-				else
-					DATA["$KEY"]="Error: spec mismatch (Got RAM:$RAM DISK:$DISK VCPU:$VCPUS, Expected RAM:$REQ_RAM DISK:4 VCPU:1)"
-				fi
-
-			elif [[ "$KEY" == "keypair_name_ok" ]]; then
-				EXPECTED_KEYPAIR_NAME="key-${SUFFIX}"
-				OUTPUT=$(openstack keypair list -f value -c Name 2>/dev/null)
-				if echo "$OUTPUT" | grep -Fxq "$EXPECTED_KEYPAIR_NAME"; then
-					DATA["$KEY"]="OK"
-				else
-					DATA["$KEY"]="Error: keypair '$EXPECTED_KEYPAIR_NAME' not found"
-				fi
-			fi
-		else
-			# 1. Pastikan variabel pendukung sudah tersedia secara lokal
-			SUFFIX="$EXPECTED_SUFFIX"
-
-			# Menentukan Floating IP (FIP) secara dinamis jika belum didefinisikan secara manual
-			FLOATINGIP="172.20.10.${FIP_RANGE_START_INT}"
-
-			# X_INT biasanya merujuk pada octet internal (192.30.X.0)
-			X_INT="$EXPECTED_INTERNAL_OCTET"
-
-			# 2. Transformasi Template Perintah
-			CMD=$(echo "$CMD_TEMPLATE" | sed \
-				-e "s/PLACEHOLDER/${SUFFIX}/g" \
-				-e "s/FIP_PLACEHOLDER/${FLOATINGIP}/g" \
-				-e "s/X_INT/${X_INT}/g")
-
-			# 3. Eksekusi dan Verifikasi
-			OUTPUT=$(eval "$CMD" 2>&1)
-
-			if echo "$OUTPUT" | grep -q "$EXPECTED"; then
-				DATA["$KEY"]="OK"
-			else
-				DATA["$KEY"]="Error: expected '$EXPECTED' not found on output of: $CMD"
-			fi
-		fi
+                    OUTPUT=$(eval "$CMD" 2>&1)
+                    if echo "$OUTPUT" | grep -q "$EXPECTED"; then
+                        DATA["$KEY"]="OK"
+                    else
+                        DATA["$KEY"]="Error: expected '$EXPECTED' not found"
+                    fi
+                fi
                 ;;
 
             file_content)
@@ -2204,73 +2102,72 @@ function grade_lab() {
                 ;;
             image)
                 IMAGE_NAME="$KEY"
-                SUFFIX="EXPECTED_SUFFIX"
-                # Menggunakan offset IP ke-7 (START + 6) untuk git-node1
-                FIP_GIT_NODE=$((FIP_RANGE_START_INT + 6))
-                HOST="ubuntu@172.20.10.${FIP_GIT_NODE}"
 
-		# ===================== OSADM-009-2 =====================
-		if [[ "$LAB_ID" == "OSADM-009-2" && "$KEY" == "lab1shell-kelompokx-sijax:latest" ]]; then
-			DYNAMIC_IMG="lab1shell-${SUFFIX}:latest"
-			OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" \
-				"docker image inspect $DYNAMIC_IMG >/dev/null 2>&1 && echo OK || echo NOT_FOUND")
-			if [[ "$OUT" == "OK" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Image $DYNAMIC_IMG not found on git-node1 ($HOST)"
-			fi
+                # ===================== OSADM-009-2 =====================
+                if [[ "$LAB_ID" == "OSADM-009-2" && "$KEY" == "lab1shell-kelompokx-sijax:latest" ]]; then
+                    HOST="ubuntu@172.20.10.65"
 
-		# ===================== OSADM-009-3 =====================
-		elif [[ "$LAB_ID" == "OSADM-009-3" && "$KEY" == "web-kelompokx-sijax:latest" ]]; then
-			DYNAMIC_IMG="web-${SUFFIX}:latest"
-			OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" \
-				"docker image inspect $DYNAMIC_IMG >/dev/null 2>&1 && echo OK || echo NOT_FOUND")
-			if [[ "$OUT" == "OK" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Image $DYNAMIC_IMG not found on $HOST"
-			fi
+                    OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" \
+                        "docker image inspect lab1shell-kelompokx-sijax:latest >/dev/null 2>&1 && echo OK || echo NOT_FOUND")
 
-		# ===================== OSADM-QUIZ-009-1 =====================
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-009-1" && "$KEY" == "quiz9-web-kelompokxsijax:latest" ]]; then
-			CLEAN_SUFFIX=$(echo "$SUFFIX" | tr -d '-')
-			DYNAMIC_IMG="quiz9-web-${CLEAN_SUFFIX}:latest"
-			OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" \
-				"docker image inspect $DYNAMIC_IMG >/dev/null 2>&1 && echo OK || echo NOT_FOUND")
-			if [[ "$OUT" == "OK" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Image $DYNAMIC_IMG not found on $HOST"
-			fi
+                    if [[ "$OUT" == "OK" ]]; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: Image not found on git-node1"
+                    fi
 
-		# ===================== OSADM-QUIZ-010-1 =====================
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-010-1" && "$KEY" == "game-kelompokx-sijax" ]]; then
-			DYNAMIC_IMG="game-${SUFFIX}"
-			OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" \
-				"docker image ls --format '{{.Repository}}' | grep -q '$DYNAMIC_IMG' && echo OK || echo NOT_FOUND")
-			if [[ "$OUT" == "OK" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Image $DYNAMIC_IMG not found on $HOST"
-			fi
+                # ===================== OSADM-009-3 =====================
+	        elif [[ "$LAB_ID" == "OSADM-009-3" && "$KEY" == "web-kelompokx-sijax:latest" ]]; then
+        	    HOST="ubuntu@172.20.10.65"   # sesuaikan node
 
-		# ===================== OSADM-010-2 =====================
-		elif [[ "$LAB_ID" == "OSADM-010-2" && "$KEY" == "prod-ci-kelompokx-sijax" ]]; then
-			DYNAMIC_IMG="prod-ci-${SUFFIX}"
-			OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" \
-				"docker image ls --format '{{.Repository}}' | grep -q '$DYNAMIC_IMG' && echo OK || echo NOT_FOUND")
-			if [[ "$OUT" == "OK" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Image $DYNAMIC_IMG not found on $HOST"
-			fi
+	            OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" \
+        	        "docker image inspect web-kelompokx-sijax:latest >/dev/null 2>&1 && echo OK || echo NOT_FOUND")
+
+           	    if [[ "$OUT" == "OK" ]]; then
+                	DATA["$KEY"]="exists"
+            	    else
+	                DATA["$KEY"]="Error: Image not found on git-node1"
+        	    fi
+
+                # ===================== OSADM-QUIZ-009-1 =====================
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-009-1" && "$KEY" == "quiz9-web-kelompokxsijax:latest" ]]; then
+                    HOST="ubuntu@172.20.10.65"
+                    OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" \
+                        "docker image inspect quiz9-web-kelompokxsijax:latest >/dev/null 2>&1 && echo OK || echo NOT_FOUND")
+                    if [[ "$OUT" == "OK" ]]; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: Image not found on git-node1"
+                    fi
+
+                # ===================== OSADM-QUIZ-010-1 =====================
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-010-1" && "$KEY" == "game-kelompokx-sijax" ]]; then
+                    HOST="ubuntu@172.20.10.65"
+                    OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" \
+                        "docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -q 'game-kelompokx-sijax' && echo OK || echo NOT_FOUND")
+                    if [[ "$OUT" == "OK" ]]; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: Image game-kelompokx-sijax not found on node1"
+                    fi
+
+                # ===================== OSADM-010-2 =====================
+                elif [[ "$LAB_ID" == "OSADM-010-2" && "$KEY" == "prod-ci-kelompokx-sijax" ]]; then
+                    HOST="ubuntu@172.20.10.65"
+                    OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" \
+                        "docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -q 'prod-ci-kelompokx-sijax' && echo OK || echo NOT_FOUND")
+                    if [[ "$OUT" == "OK" ]]; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: Image not found on git-node1"
+                    fi
 
                 else
                     # default: cek di host lokal
                     if docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -qx "$IMAGE_NAME"; then
                         DATA["$KEY"]="exists"
                     else
-                        DATA["$KEY"]="Error: $IMAGE_NAME not found"
+                        DATA["$KEY"]="Error: Image not found"
                     fi
                 fi
                 ;;
@@ -2348,16 +2245,10 @@ function print_grading_result() {
     LOG_DIR="/var/log/gradingctl/labs"
     LOG_TXT_FILE="$LOG_DIR/${LAB_ID}.log"
 
-    if [ ! -d "$LOG_DIR" ]; then
-        mkdir -p "$LOG_DIR" 2>/dev/null
-    fi
-
-
-
-#    sudo mkdir -p "$LOG_DIR"
-#    sudo chown -R "$USER:$USER" /var/log/gradingctl
-#    sudo chmod 755 /var/log/gradingctl
-#    sudo chmod 755 "$LOG_DIR"
+    sudo mkdir -p "$LOG_DIR"
+    sudo chown -R "$USER:$USER" /var/log/gradingctl
+    sudo chmod 755 /var/log/gradingctl
+    sudo chmod 755 "$LOG_DIR"
 
     #: > "$LOG_TXT_FILE"
 

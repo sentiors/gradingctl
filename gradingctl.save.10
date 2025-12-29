@@ -2020,27 +2020,14 @@ function grade_lab() {
                         fi
                     fi
 
-		# ===================== gampang =====================
-		elif [[ "$LAB_ID" == "gampang" ]]; then
-		    SUFFIX="$EXPECTED_SUFFIX"
 
-		    if [[ "$KEY" == "image_name_oks" ]]; then
-		        EXPECTED_IMAGE_NAME="ubuntu24.04-quiz003-1-${SUFFIX}"
-		        OUTPUT=$(openstack image list -f value -c Name 2>/dev/null)
-		        if echo "$OUTPUT" | grep -Fxq "$EXPECTED_IMAGE_NAME"; then
-		            DATA["$KEY"]="OK"
-		        else
-		            DATA["$KEY"]="Error: image '$EXPECTED_IMAGE_NAME' not found"
-		        fi
-		    fi
-
-		# ===================== OSADM-001-2 / 001-3 existing =====================
+		# ===================== OSADM-001-2 / 001-3 =====================
 		elif [[ "$LAB_ID" == "OSADM-001-2" || "$LAB_ID" == "OSADM-001-3" ]]; then
 
 			SUFFIX="$EXPECTED_SUFFIX"
 
 			if [[ "$KEY" == "image_name_ok" ]]; then
-				EXPECTED_IMAGE_NAME="ubuntu24.04-quiz003-1-${SUFFIX}"
+				EXPECTED_IMAGE_NAME="cirros-${SUFFIX}"
 				OUTPUT=$(openstack image list -f value -c Name 2>/dev/null)
 				if echo "$OUTPUT" | grep -Fxq "$EXPECTED_IMAGE_NAME"; then
 					DATA["$KEY"]="OK"
@@ -2349,7 +2336,7 @@ function print_grading_result() {
     LOG_TXT_FILE="$LOG_DIR/${LAB_ID}.log"
 
     if [ ! -d "$LOG_DIR" ]; then
-        mkdir -p "$LOG_DIR" 2>/dev/null
+        mkdir -p "$LOG_DIR"
     fi
 
 

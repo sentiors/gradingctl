@@ -1,9 +1,7 @@
 #!/bin/bash
 
 SERVER_URL="http://100.70.220.18:8001"
-#ACTIVE_LAB_FILE="/tmp/active_lab"
-#ACTIVE_LAB_FILE="$HOME/.grading_active_lab"
-ACTIVE_LAB_FILE="$HOME/.active_lab"
+ACTIVE_LAB_FILE="/tmp/active_lab"
 
 # Warna ANSI
 GREEN='\033[0;32m'
@@ -20,7 +18,7 @@ function register() {
     echo -n "Password: "
     read -s password
     echo
-    echo -n "Kelompok: "
+    echo -n "Grup: "
     read group_name
     echo -n "Kelas: "
     read class_name
@@ -346,11 +344,6 @@ function grade_lab() {
         | tr '[:upper:]' '[:lower:]' \
         | grep -o 'kelompok[0-9x-]*sija[12x]' \
         | head -1)
-
-    if [[ -z "$USER_IDENTITY" ]]; then
-        CURRENT_OS_USER=$(whoami)
-        USER_IDENTITY=$(echo "$CURRENT_OS_USER" | tr '[:upper:]' '[:lower:]' | grep -o 'kelompok[0-9x-]*sija[12x]' | head -1)
-    fi
 
     if [[ -z "$USER_IDENTITY" ]]; then
         USER_IDENTITY="kelompokx-sijax"
@@ -1931,54 +1924,19 @@ function grade_lab() {
 				DATA["$KEY"]="Error: Web content mismatch or port 8081 inaccessible. Expected: '$EXPECT_STR' on $HOST1"
 			fi
 
-		# ===================== OSADM-010-2 =====================
-		elif [[ "$LAB_ID" == "OSADM-010-2" && "$KEY" == "osadm-010-2-curl-check" ]]; then
-			SUFFIX="$EXPECTED_SUFFIX"
-
-			FIP_SEVENTH=$((FIP_RANGE_START_INT + 6))
-			HOST1="ubuntu@172.20.10.${FIP_SEVENTH}"
-
-			FIP_EIGHTH=$((FIP_RANGE_START_INT + 7))
-			HOST2="ubuntu@172.20.10.${FIP_EIGHTH}"
-
-			CLEAN_ID=$(echo "$SUFFIX" | tr '-' ' ')
-			EXPECT_STR="Hi we are from $CLEAN_ID in Production"
-
-			OUT1=$(ssh -n -o StrictHostKeyChecking=no "$HOST1" "curl -s --max-time 5 http://localhost:8082 || echo FAIL")
-			OUT2=$(ssh -n -o StrictHostKeyChecking=no "$HOST2" "curl -s --max-time 5 http://localhost:8082 || echo FAIL")
-
-			if echo "$OUT1" | grep -qi "$EXPECT_STR" && echo "$OUT2" | grep -qi "$EXPECT_STR"; then
-				DATA["$KEY"]="exists"
-			else
-				ERR_MSG="Error: Content mismatch."
-				echo "$OUT1" | grep -qi "$EXPECT_STR" || ERR_MSG="$ERR_MSG Node1(Staging) FAIL."
-				echo "$OUT2" | grep -qi "$EXPECT_STR" || ERR_MSG="$ERR_MSG Node2(Production) FAIL."
-				DATA["$KEY"]="$ERR_MSG"
-			fi
 
 		# ===================== OSADM-QUIZ-010-1 =====================
 		elif [[ "$LAB_ID" == "OSADM-QUIZ-010-1" && "$KEY" == "osadm-quiz-010-1-curl-check" ]]; then
-			SUFFIX="$EXPECTED_SUFFIX"
 
-			# Node 1: IP ke-7 dari range (Guru: 59 + 6 = 65)
-			FIP_SEVENTH=$((FIP_RANGE_START_INT + 6))
-			HOST1="ubuntu@172.20.10.${FIP_SEVENTH}"
+		    if ssh -n -o StrictHostKeyChecking=no ubuntu@172.20.10.65 \
+		        "curl -sf --connect-timeout 3 http://localhost:8083 >/dev/null" \
+		    && ssh -n -o StrictHostKeyChecking=no ubuntu@172.20.10.66 \
+		        "curl -sf --connect-timeout 3 http://localhost:8083 >/dev/null"; then
 
-			# Node 2: IP ke-8 dari range (Guru: 59 + 7 = 66)
-			FIP_EIGHTH=$((FIP_RANGE_START_INT + 7))
-			HOST2="ubuntu@172.20.10.${FIP_EIGHTH}"
-
-			CHECK_NODE1=$(ssh -n -o StrictHostKeyChecking=no "$HOST1" "curl -sf --connect-timeout 3 http://localhost:8083 >/dev/null && echo OK || echo FAIL" 2>/dev/null)
-			CHECK_NODE2=$(ssh -n -o StrictHostKeyChecking=no "$HOST2" "curl -sf --connect-timeout 3 http://localhost:8083 >/dev/null && echo OK || echo FAIL" 2>/dev/null)
-
-			if [[ "$CHECK_NODE1" == "OK" && "$CHECK_NODE2" == "OK" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				ERR_MSG="Error:"
-				[[ "$CHECK_NODE1" != "OK" ]] && ERR_MSG="$ERR_MSG Node1(8083) Down."
-				[[ "$CHECK_NODE2" != "OK" ]] && ERR_MSG="$ERR_MSG Node2(8083) Down."
-				DATA["$KEY"]="$ERR_MSG"
-			fi
+		        DATA["osadm-quiz-010-1-curl-check"]="exists"
+		    else
+		        DATA["osadm-quiz-010-1-curl-check"]="not_exists"
+		    fi
 		
                 # ===================== OSADM-011-2 =====================
                 elif [[ "$LAB_ID" == "OSADM-011-2" && "$KEY" == "monitoring_quiz_ok" ]]; then
@@ -2020,96 +1978,57 @@ function grade_lab() {
                         fi
                     fi
 
-		# ===================== gampang =====================
-		elif [[ "$LAB_ID" == "gampang" ]]; then
-		    SUFFIX="$EXPECTED_SUFFIX"
 
-		    if [[ "$KEY" == "image_name_oks" ]]; then
-		        EXPECTED_IMAGE_NAME="ubuntu24.04-quiz003-1-${SUFFIX}"
-		        OUTPUT=$(openstack image list -f value -c Name 2>/dev/null)
-		        if echo "$OUTPUT" | grep -Fxq "$EXPECTED_IMAGE_NAME"; then
-		            DATA["$KEY"]="OK"
-		        else
-		            DATA["$KEY"]="Error: image '$EXPECTED_IMAGE_NAME' not found"
-		        fi
-		    fi
+                # ===================== OSADM-001-2 / 001-3 existing =====================
+                elif [[ "$KEY" == "image_name_ok" ]]; then
+                    OUTPUT=$(openstack image list -f value -c Name 2>/dev/null)
+                    if echo "$OUTPUT" | grep -Fxq "$EXPECTED_IMAGE_NAME"; then
+                        DATA["$KEY"]="OK"
+                    else
+                        DATA["$KEY"]="Error: image name not match"
+                    fi
 
-		# ===================== OSADM-001-2 / 001-3 existing =====================
-		elif [[ "$LAB_ID" == "OSADM-001-2" || "$LAB_ID" == "OSADM-001-3" ]]; then
+                elif [[ "$KEY" == "flavor_name_ok" ]]; then
+                    OUTPUT=$(openstack flavor list -f value -c Name 2>/dev/null)
+                    if echo "$OUTPUT" | grep -Fxq "$EXPECTED_FLAVOR_NAME"; then
+                        DATA["$KEY"]="OK"
+                    else
+                        DATA["$KEY"]="Error: flavor name not match"
+                    fi
 
-			SUFFIX="$EXPECTED_SUFFIX"
+                elif [[ "$KEY" == "flavor_spec_ok" ]]; then
+                    OUTPUT=$(openstack flavor show "$EXPECTED_FLAVOR_NAME" -f json 2>/dev/null || echo "")
+                    RAM=$(echo "$OUTPUT"   | jq -r '.ram // empty')
+                    DISK=$(echo "$OUTPUT"  | jq -r '.disk // empty')
+                    VCPUS=$(echo "$OUTPUT" | jq -r '.vcpus // empty')
+                    if [[ "$LAB_ID" == "OSADM-001-2" ]]; then
+                        [[ "$RAM" == "512" && "$DISK" == "4" && "$VCPUS" == "1" ]] && DATA["$KEY"]="OK" || DATA["$KEY"]="Error: flavor spec mismatch"
+                    else
+                        [[ "$RAM" == "1024" && "$DISK" == "4" && "$VCPUS" == "1" ]] && DATA["$KEY"]="OK" || DATA["$KEY"]="Error: flavor spec mismatch"
+                    fi
 
-			if [[ "$KEY" == "image_name_ok" ]]; then
-				EXPECTED_IMAGE_NAME="ubuntu24.04-quiz003-1-${SUFFIX}"
-				OUTPUT=$(openstack image list -f value -c Name 2>/dev/null)
-				if echo "$OUTPUT" | grep -Fxq "$EXPECTED_IMAGE_NAME"; then
-					DATA["$KEY"]="OK"
-				else
-					DATA["$KEY"]="Error: image '$EXPECTED_IMAGE_NAME' not found"
-				fi
+                elif [[ "$KEY" == "keypair_name_ok" ]]; then
+                    OUTPUT=$(openstack keypair list -f value -c Name 2>/dev/null)
+                    if echo "$OUTPUT" | grep -Fxq "$EXPECTED_KEYPAIR_NAME"; then
+                        DATA["$KEY"]="OK"
+                    else
+                        DATA["$KEY"]="Error: keypair name not match"
+                    fi
 
-			elif [[ "$KEY" == "flavor_name_ok" ]]; then
-				EXPECTED_FLAVOR_NAME="flavor-${SUFFIX}"
-				OUTPUT=$(openstack flavor list -f value -c Name 2>/dev/null)
-				if echo "$OUTPUT" | grep -Fxq "$EXPECTED_FLAVOR_NAME"; then
-					DATA["$KEY"]="OK"
-				else
-					DATA["$KEY"]="Error: flavor '$EXPECTED_FLAVOR_NAME' not found"
-				fi
+                else
+                    # fallback generic command untuk lab lain
+                    CMD=$(echo "$CMD_TEMPLATE" | sed \
+                        -e "s/PLACEHOLDER/${EXPECTED_SUFFIX}/g" \
+                        -e "s/FIP_PLACEHOLDER/${FLOATINGIP}/g" \
+                        -e "s/X_INT/${X_INT}/g")
 
-			elif [[ "$KEY" == "flavor_spec_ok" ]]; then
-				EXPECTED_FLAVOR_NAME="flavor-${SUFFIX}"
-				OUTPUT=$(openstack flavor show "$EXPECTED_FLAVOR_NAME" -f json 2>/dev/null || echo "{}")
-				RAM=$(echo "$OUTPUT" | jq -r '.ram // empty')
-				DISK=$(echo "$OUTPUT" | jq -r '.disk // empty')
-				VCPUS=$(echo "$OUTPUT" | jq -r '.vcpus // empty')
-
-				if [[ "$LAB_ID" == "OSADM-001-2" ]]; then
-					REQ_RAM="512"
-				else
-					REQ_RAM="1024"
-				fi
-
-				if [[ "$RAM" == "$REQ_RAM" && "$DISK" == "4" && "$VCPUS" == "1" ]]; then
-					DATA["$KEY"]="OK"
-				else
-					DATA["$KEY"]="Error: spec mismatch (Got RAM:$RAM DISK:$DISK VCPU:$VCPUS, Expected RAM:$REQ_RAM DISK:4 VCPU:1)"
-				fi
-
-			elif [[ "$KEY" == "keypair_name_ok" ]]; then
-				EXPECTED_KEYPAIR_NAME="key-${SUFFIX}"
-				OUTPUT=$(openstack keypair list -f value -c Name 2>/dev/null)
-				if echo "$OUTPUT" | grep -Fxq "$EXPECTED_KEYPAIR_NAME"; then
-					DATA["$KEY"]="OK"
-				else
-					DATA["$KEY"]="Error: keypair '$EXPECTED_KEYPAIR_NAME' not found"
-				fi
-			fi
-		else
-			# 1. Pastikan variabel pendukung sudah tersedia secara lokal
-			SUFFIX="$EXPECTED_SUFFIX"
-
-			# Menentukan Floating IP (FIP) secara dinamis jika belum didefinisikan secara manual
-			FLOATINGIP="172.20.10.${FIP_RANGE_START_INT}"
-
-			# X_INT biasanya merujuk pada octet internal (192.30.X.0)
-			X_INT="$EXPECTED_INTERNAL_OCTET"
-
-			# 2. Transformasi Template Perintah
-			CMD=$(echo "$CMD_TEMPLATE" | sed \
-				-e "s/PLACEHOLDER/${SUFFIX}/g" \
-				-e "s/FIP_PLACEHOLDER/${FLOATINGIP}/g" \
-				-e "s/X_INT/${X_INT}/g")
-
-			# 3. Eksekusi dan Verifikasi
-			OUTPUT=$(eval "$CMD" 2>&1)
-
-			if echo "$OUTPUT" | grep -q "$EXPECTED"; then
-				DATA["$KEY"]="OK"
-			else
-				DATA["$KEY"]="Error: expected '$EXPECTED' not found on output of: $CMD"
-			fi
-		fi
+                    OUTPUT=$(eval "$CMD" 2>&1)
+                    if echo "$OUTPUT" | grep -q "$EXPECTED"; then
+                        DATA["$KEY"]="OK"
+                    else
+                        DATA["$KEY"]="Error: expected '$EXPECTED' not found"
+                    fi
+                fi
                 ;;
 
             file_content)
@@ -2204,73 +2123,72 @@ function grade_lab() {
                 ;;
             image)
                 IMAGE_NAME="$KEY"
-                SUFFIX="EXPECTED_SUFFIX"
-                # Menggunakan offset IP ke-7 (START + 6) untuk git-node1
-                FIP_GIT_NODE=$((FIP_RANGE_START_INT + 6))
-                HOST="ubuntu@172.20.10.${FIP_GIT_NODE}"
 
-		# ===================== OSADM-009-2 =====================
-		if [[ "$LAB_ID" == "OSADM-009-2" && "$KEY" == "lab1shell-kelompokx-sijax:latest" ]]; then
-			DYNAMIC_IMG="lab1shell-${SUFFIX}:latest"
-			OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" \
-				"docker image inspect $DYNAMIC_IMG >/dev/null 2>&1 && echo OK || echo NOT_FOUND")
-			if [[ "$OUT" == "OK" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Image $DYNAMIC_IMG not found on git-node1 ($HOST)"
-			fi
+                # ===================== OSADM-009-2 =====================
+                if [[ "$LAB_ID" == "OSADM-009-2" && "$KEY" == "lab1shell-kelompokx-sijax:latest" ]]; then
+                    HOST="ubuntu@172.20.10.65"
 
-		# ===================== OSADM-009-3 =====================
-		elif [[ "$LAB_ID" == "OSADM-009-3" && "$KEY" == "web-kelompokx-sijax:latest" ]]; then
-			DYNAMIC_IMG="web-${SUFFIX}:latest"
-			OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" \
-				"docker image inspect $DYNAMIC_IMG >/dev/null 2>&1 && echo OK || echo NOT_FOUND")
-			if [[ "$OUT" == "OK" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Image $DYNAMIC_IMG not found on $HOST"
-			fi
+                    OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" \
+                        "docker image inspect lab1shell-kelompokx-sijax:latest >/dev/null 2>&1 && echo OK || echo NOT_FOUND")
 
-		# ===================== OSADM-QUIZ-009-1 =====================
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-009-1" && "$KEY" == "quiz9-web-kelompokxsijax:latest" ]]; then
-			CLEAN_SUFFIX=$(echo "$SUFFIX" | tr -d '-')
-			DYNAMIC_IMG="quiz9-web-${CLEAN_SUFFIX}:latest"
-			OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" \
-				"docker image inspect $DYNAMIC_IMG >/dev/null 2>&1 && echo OK || echo NOT_FOUND")
-			if [[ "$OUT" == "OK" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Image $DYNAMIC_IMG not found on $HOST"
-			fi
+                    if [[ "$OUT" == "OK" ]]; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: Image not found on git-node1"
+                    fi
 
-		# ===================== OSADM-QUIZ-010-1 =====================
-		elif [[ "$LAB_ID" == "OSADM-QUIZ-010-1" && "$KEY" == "game-kelompokx-sijax" ]]; then
-			DYNAMIC_IMG="game-${SUFFIX}"
-			OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" \
-				"docker image ls --format '{{.Repository}}' | grep -q '$DYNAMIC_IMG' && echo OK || echo NOT_FOUND")
-			if [[ "$OUT" == "OK" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Image $DYNAMIC_IMG not found on $HOST"
-			fi
+                # ===================== OSADM-009-3 =====================
+	        elif [[ "$LAB_ID" == "OSADM-009-3" && "$KEY" == "web-kelompokx-sijax:latest" ]]; then
+        	    HOST="ubuntu@172.20.10.65"   # sesuaikan node
 
-		# ===================== OSADM-010-2 =====================
-		elif [[ "$LAB_ID" == "OSADM-010-2" && "$KEY" == "prod-ci-kelompokx-sijax" ]]; then
-			DYNAMIC_IMG="prod-ci-${SUFFIX}"
-			OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" \
-				"docker image ls --format '{{.Repository}}' | grep -q '$DYNAMIC_IMG' && echo OK || echo NOT_FOUND")
-			if [[ "$OUT" == "OK" ]]; then
-				DATA["$KEY"]="exists"
-			else
-				DATA["$KEY"]="Error: Image $DYNAMIC_IMG not found on $HOST"
-			fi
+	            OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" \
+        	        "docker image inspect web-kelompokx-sijax:latest >/dev/null 2>&1 && echo OK || echo NOT_FOUND")
+
+           	    if [[ "$OUT" == "OK" ]]; then
+                	DATA["$KEY"]="exists"
+            	    else
+	                DATA["$KEY"]="Error: Image not found on git-node1"
+        	    fi
+
+                # ===================== OSADM-QUIZ-009-1 =====================
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-009-1" && "$KEY" == "quiz9-web-kelompokxsijax:latest" ]]; then
+                    HOST="ubuntu@172.20.10.65"
+                    OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" \
+                        "docker image inspect quiz9-web-kelompokxsijax:latest >/dev/null 2>&1 && echo OK || echo NOT_FOUND")
+                    if [[ "$OUT" == "OK" ]]; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: Image not found on git-node1"
+                    fi
+
+                # ===================== OSADM-QUIZ-010-1 =====================
+                elif [[ "$LAB_ID" == "OSADM-QUIZ-010-1" && "$KEY" == "game-kelompokx-sijax" ]]; then
+                    HOST="ubuntu@172.20.10.65"
+                    OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" \
+                        "docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -q 'game-kelompokx-sijax' && echo OK || echo NOT_FOUND")
+                    if [[ "$OUT" == "OK" ]]; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: Image game-kelompokx-sijax not found on node1"
+                    fi
+
+                # ===================== OSADM-010-2 =====================
+                elif [[ "$LAB_ID" == "OSADM-010-2" && "$KEY" == "prod-ci-kelompokx-sijax" ]]; then
+                    HOST="ubuntu@172.20.10.65"
+                    OUT=$(ssh -n -o StrictHostKeyChecking=no "$HOST" \
+                        "docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -q 'prod-ci-kelompokx-sijax' && echo OK || echo NOT_FOUND")
+                    if [[ "$OUT" == "OK" ]]; then
+                        DATA["$KEY"]="exists"
+                    else
+                        DATA["$KEY"]="Error: Image not found on git-node1"
+                    fi
 
                 else
                     # default: cek di host lokal
                     if docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -qx "$IMAGE_NAME"; then
                         DATA["$KEY"]="exists"
                     else
-                        DATA["$KEY"]="Error: $IMAGE_NAME not found"
+                        DATA["$KEY"]="Error: Image not found"
                     fi
                 fi
                 ;;
@@ -2348,16 +2266,10 @@ function print_grading_result() {
     LOG_DIR="/var/log/gradingctl/labs"
     LOG_TXT_FILE="$LOG_DIR/${LAB_ID}.log"
 
-    if [ ! -d "$LOG_DIR" ]; then
-        mkdir -p "$LOG_DIR" 2>/dev/null
-    fi
-
-
-
-#    sudo mkdir -p "$LOG_DIR"
-#    sudo chown -R "$USER:$USER" /var/log/gradingctl
-#    sudo chmod 755 /var/log/gradingctl
-#    sudo chmod 755 "$LOG_DIR"
+    sudo mkdir -p "$LOG_DIR"
+    sudo chown -R "$USER:$USER" /var/log/gradingctl
+    sudo chmod 755 /var/log/gradingctl
+    sudo chmod 755 "$LOG_DIR"
 
     #: > "$LOG_TXT_FILE"
 
