@@ -295,6 +295,8 @@ determine_dynamic_variables() {
         CLASS_TYPE=1
     elif [[ "$IDENTITY" == *"sija2"* ]]; then
         CLASS_TYPE=2
+    elif [[ "$IDENTITY" == *"sija3"* ]]; then
+        CLASS_TYPE=3
     else
         echo "Error: Kelas tidak dikenali di IDENTITY=$IDENTITY (butuh sija1/sija2/sijax)" >&2
         return 1
@@ -323,6 +325,8 @@ determine_dynamic_variables() {
         EXPECTED_INTERNAL_OCTET=$((GROUP_NUM + 1))
     else
         EXPECTED_INTERNAL_OCTET=$((GROUP_NUM + 10))
+    else
+        EXPECTED_INTERNAL_OCTET=$((GROUP_NUM + 20))
     fi
 
     # Subnet HAProxy 192.70.X.0/24 pakai X yang sama
@@ -335,6 +339,8 @@ determine_dynamic_variables() {
         EXPECTED_EXT_START=$((5  + (GROUP_NUM - 1) * 3))
     else
         EXPECTED_EXT_START=$((32 + (GROUP_NUM - 1) * 3))
+    else
+        EXPECTED_EXT_START=$((60 + (GROUP_NUM - 1) * 3))
     fi
     EXPECTED_EXT_END=$((EXPECTED_EXT_START + 2))
 
@@ -351,7 +357,7 @@ determine_dynamic_variables() {
           8) FIP_START=139 ; FIP_END=148 ;;
           9) FIP_START=149 ; FIP_END=158 ;;
         esac
-    else
+    elif [[ "$CLASS_TYPE" -eq 2 ]]; then
         case $GROUP_NUM in
           1) FIP_START=159 ; FIP_END=168 ;;
           2) FIP_START=169 ; FIP_END=178 ;;
@@ -362,6 +368,12 @@ determine_dynamic_variables() {
           7) FIP_START=219 ; FIP_END=228 ;;
           8) FIP_START=229 ; FIP_END=238 ;;
           9) FIP_START=239 ; FIP_END=248 ;;
+        esac
+    elif [[ "$CLASS_TYPE" -eq 3 ]]; then
+        case $GROUP_NUM in
+          1) FIP_START=250 ; FIP_END=259 ;;
+          2) FIP_START=260 ; FIP_END=269 ;;
+          3) FIP_START=270 ; FIP_END=279 ;;
         esac
     fi
 
