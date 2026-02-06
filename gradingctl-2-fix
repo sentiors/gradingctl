@@ -108,34 +108,47 @@ function register() {
 }
 
 function login() {
+    # 1. Cek apakah sudah ada sesi login aktif
+    if [[ -f ~/.nusactl_token ]]; then
+        # Mengambil username dari token (asumsi username ada di bagian akhir setelah tanda - terakhir)
+        EXISTING_USER=$(cat ~/.nusactl_token | rev | cut -d'-' -f1 | rev)
+        echo -e "${RED}Sudah login sebagai '$EXISTING_USER'${NC}"
+        echo -e "${YELLOW}Silakan logout terlebih dahulu untuk berganti akun.${NC}"
+        exit 1
+    fi
+
+    # 2. Proses Input
     echo -n "Username: "
     read username
     echo -n "Password: "
     read -s password
     echo
 
+    # 3. Kirim Request ke Server
     RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" \
     -d "{\"username\": \"$username\", \"password\": \"$password\"}" \
     $SERVER_URL/login)
 
-    ERROR=$(echo "$RESPONSE" | jq -r '.error')
-    TOKEN=$(echo "$RESPONSE" | jq -r '.token')
+    # 4. Parsing Response
+    ERROR=$(echo "$RESPONSE" | jq -r '.error // empty')
+    TOKEN=$(echo "$RESPONSE" | jq -r '.token // empty')
 
-    if [[ "$ERROR" != "null" && -n "$ERROR" ]]; then
+    # 5. Validasi Hasil
+    if [[ -n "$ERROR" ]]; then
         echo -e "${RED}Error: $ERROR${NC}"
-        if [[ "$ERROR" == "User not exist, please register first (gradingctl register)" ]]; then
-            echo -e "${YELLOW}Please register first using: gradingctl register${NC}"
+        if [[ "$ERROR" == *"register"* ]]; then
+            echo -e "${YELLOW}User tidak ditemukan, silakan register terlebih dahulu.${NC}"
         fi
         exit 1
-    elif [[ $TOKEN == "null" || -z $TOKEN ]]; then
+    elif [[ -z "$TOKEN" ]]; then
         echo -e "${RED}Login gagal!${NC}"
         exit 1
     else
-        echo $TOKEN > ~/.nusactl_token
-        echo -e "${GREEN}Login berhasil!${NC}"
+        # 6. Simpan Token dan Tampilkan Pesan Sukses
+        echo "$TOKEN" > ~/.nusactl_token
+        echo -e "${GREEN}Login berhasil sebagai $username!${NC}"
     fi
 }
-
 
 function start_lab() {
     TOKEN=$(cat ~/.nusactl_token)
@@ -2759,8 +2772,6 @@ function finish() {
     if [[ -f "$RC_FILE" ]]; then
         source /opt/kolla-ansible/venv/bin/activate >/dev/null 2>&1
         source "$RC_FILE" >/dev/null 2>&1
-    else
-        return
     fi
 
     # 3. Daftar Template
@@ -2818,10 +2829,14 @@ function finish() {
 
 function logout() {
     if [[ -f ~/.nusactl_token ]]; then
+        # Ambil nama user sebelum file dihapus untuk pesan penutup
+        TOKEN_LAMA=$(cat ~/.nusactl_token)
+        USER_LAMA=$(echo "$TOKEN_LAMA" | rev | cut -d'-' -f1 | rev)
+        
         rm ~/.nusactl_token
-        echo -e "${GREEN}Logged out successfully.${NC}"
+        echo -e "${GREEN}Logout berhasil. Sampai jumpa lagi, $USER_LAMA!${NC}"
     else
-        echo -e "${YELLOW}No active session found.${NC}"
+        echo -e "${YELLOW}Tidak ada sesi aktif.${NC}"
     fi
 }
 
@@ -2836,28 +2851,30 @@ function fetch_log() {
 }
 
 function reset_password() {
-    echo -e "\033[36m=== Reset Password via OTP Gmail (20 Menit) ===\033[0m"
     echo -n "Username: "; read username
     echo -n "Email Terdaftar: "; read email
 
     # Tahap 1: Request OTP
-    echo -n "Mengirim kode OTP ke email..."
     REQ_OTP=$(curl -s -X POST -H "Content-Type: application/json" \
         -d "{\"username\":\"$username\",\"email\":\"$email\"}" \
-        $SERVER_URL/request_reset_otp)
+        "$SERVER_URL/request_reset_otp")
 
-    OTP_MSG=$(echo "$REQ_OTP" | jq -r '.message')
-    OTP_ERR=$(echo "$REQ_OTP" | jq -r '.error')
-
-    if [[ "$OTP_ERR" != "null" && -n "$OTP_ERR" ]]; then
-        echo -e "\n\033[31mError: $OTP_ERR\033[0m"
+    # Validasi jika output bukan JSON
+    if ! echo "$REQ_OTP" | jq -e . >/dev/null 2>&1; then
+        echo -e "\033[31mError: Server tidak merespon dengan benar.\033[0m"
         return
     fi
 
-    echo -e "\n\033[32m$OTP_MSG\033[0m"
+    OTP_ERR=$(echo "$REQ_OTP" | jq -r '.error // empty')
+    if [[ -n "$OTP_ERR" && "$OTP_ERR" != "null" ]]; then
+        echo -e "\033[31mError: $OTP_ERR\033[0m"
+        return
+    fi
+
+    echo -e "\033[32mOTP berhasil dikirim ke email!\033[0m"
 
     # Tahap 2: Input OTP dan Password Baru
-    echo -n "Masukkan Kode OTP dari Gmail: "; read otp_code
+    echo -n "Masukkan Kode OTP: "; read otp_code
     echo -n "Password Baru: "; read -s new_password; echo ""
     echo -n "Retype Password Baru: "; read -s confirm_password; echo ""
 
@@ -2866,30 +2883,70 @@ function reset_password() {
         return
     fi
 
-    # Tahap 3: Verifikasi Akhir ke Server
-    echo -n "Sedang memverifikasi OTP..."
+    # Tahap 3: Verifikasi Akhir
     RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" \
         -d "{\"username\":\"$username\", \"otp\":\"$otp_code\", \"new_password\":\"$new_password\"}" \
-        $SERVER_URL/reset_password_with_otp)
+        "$SERVER_URL/reset_password_with_otp")
 
-    MESSAGE=$(echo "$RESPONSE" | jq -r '.message')
-    ERROR=$(echo "$RESPONSE" | jq -r '.error')
+    # Proteksi jq dari error parse
+    if ! echo "$RESPONSE" | jq -e . >/dev/null 2>&1; then
+        echo -e "\033[31mError: Respon server tidak valid (Internal Server Error).\033[0m"
+        return
+    fi
 
-    if [[ "$ERROR" != "null" && -n "$ERROR" ]]; then
-        echo -e "\n\033[31mError: $ERROR\033[0m"
+    MESSAGE=$(echo "$RESPONSE" | jq -r '.message // empty')
+    ERROR=$(echo "$RESPONSE" | jq -r '.error // empty')
+
+    if [[ -n "$ERROR" && "$ERROR" != "null" ]]; then
+        echo -e "\033[31mError: $ERROR\033[0m"
     else
-        echo -e "\n\033[32mSuccess: $MESSAGE\033[0m"
+        echo -e "\033[32mSuccess: $MESSAGE\033[0m"
     fi
 }
 
-#function fetch_log() {
-#    TOKEN=$(cat ~/.nusactl_token)
-#    LAB_ID=$1
-#    SERVER_URL="10.10.10.12:5000"
-#    RESPONSE=$(curl -s -H "Authorization: Bearer $TOKEN" "$SERVER_URL/get-log?lab_id=$LAB_ID")
-#    LOG_CONTENT=$(echo "$RESPONSE" | jq -r '.content // .error')
-#    echo "$LOG_CONTENT"
-#}
+function get_info() {
+    TOKEN=$(cat ~/.nusactl_token 2>/dev/null)
+    if [[ -z "$TOKEN" ]]; then
+        echo -e "${RED}Silakan login terlebih dahulu.${NC}"
+        exit 1
+    fi
+
+    RESPONSE=$(curl -s -X GET -H "Authorization: Bearer $TOKEN" "$SERVER_URL/get_user_profile")
+
+    # Ambil data mentah dari JSON
+    RAW_EMAIL=$(echo "$RESPONSE" | jq -r '.email // "-"')
+    RAW_PHONE=$(echo "$RESPONSE" | jq -r '.phone // "-"')
+
+    # --- LOGIKA SENSOR EMAIL ---
+    # Mengubah aakiryoota@gmail.com menjadi a*******a@gmail.com
+    if [[ "$RAW_EMAIL" != "-" ]]; then
+        USER_PART=$(echo "$RAW_EMAIL" | cut -d'@' -f1)
+        DOMAIN_PART=$(echo "$RAW_EMAIL" | cut -d'@' -f2)
+        FIRST_CHAR=${USER_PART:0:1}
+        LAST_CHAR=${USER_PART: -1}
+        MASKED_EMAIL="${FIRST_CHAR}*******${LAST_CHAR}@${DOMAIN_PART}"
+    else
+        MASKED_EMAIL="-"
+    fi
+
+    # --- LOGIKA SENSOR NO HP ---
+    # Mengambil 4 digit terakhir, sisanya bintang
+    if [[ "$RAW_PHONE" != "-" ]]; then
+        LAST_4=${RAW_PHONE: -4}
+        MASKED_PHONE="*******${LAST_4}"
+    else
+        MASKED_PHONE="-"
+    fi
+
+    echo -e "${BLUE}=== INFORMASI USER LOGIN ===${NC}"
+    echo -e "Nama      : $(echo "$RESPONSE" | jq -r '.name // "-"')"
+    echo -e "Username  : $(echo "$RESPONSE" | jq -r '.username // "-"')"
+    echo -e "Email     : $MASKED_EMAIL"
+    echo -e "No HP     : $MASKED_PHONE"
+    echo -e "Kelompok  : $(echo "$RESPONSE" | jq -r '.group_name // "-"')"
+    echo -e "Kelas     : $(echo "$RESPONSE" | jq -r '.class_name // "-"')"
+    echo -e "${BLUE}============================${NC}"
+}
 
 function help() {
     echo -e "${BLUE}Usage: gradingctl {command} [options]${NC}"
@@ -2909,6 +2966,7 @@ function help() {
 
 case $1 in
     login) login ;;
+    info) get_info ;;
     register) register ;;
     reset-password) reset_password ;;
     start) start_lab $2 $3 ;;  # Tambahkan $3 untuk opsi (-s atau -f)
