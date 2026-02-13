@@ -110,7 +110,6 @@ function register() {
 function login() {
     # 1. Cek apakah sudah ada sesi login aktif
     if [[ -f ~/.nusactl_token ]]; then
-        # Mengambil username dari token (asumsi username ada di bagian akhir setelah tanda - terakhir)
         EXISTING_USER=$(cat ~/.nusactl_token | rev | cut -d'-' -f1 | rev)
         echo -e "${RED}Sudah login sebagai '$EXISTING_USER'${NC}"
         echo -e "${YELLOW}Silakan logout terlebih dahulu untuk berganti akun.${NC}"
@@ -135,7 +134,16 @@ function login() {
 
     # 5. Validasi Hasil
     if [[ -n "$ERROR" ]]; then
-        echo -e "${RED}Error: $ERROR${NC}"
+        # Cek jika error mengandung kata "Masa aktif" atau "Lulus"
+        if [[ "$ERROR" == *"Masa aktif"* || "$ERROR" == *"Lulus"* ]]; then
+            # Warna MERAH buat label 'Error:', warna KUNING buat isi pesannya
+            echo -e "${RED}Error: ${NC}${YELLOW}$ERROR${NC}"
+        else
+            # Warna MERAH standar untuk error lainnya (salah password, dll)
+            echo -e "${RED}Error: $ERROR${NC}"
+        fi
+
+        # Tambahan info jika user belum terdaftar
         if [[ "$ERROR" == *"register"* ]]; then
             echo -e "${YELLOW}User tidak ditemukan, silakan register terlebih dahulu.${NC}"
         fi
@@ -734,7 +742,8 @@ function grade_lab() {
                                 EXT_NET_ID=$(echo "$OUTPUT" | jq -r '.external_gateway_info.network_id // empty')
                                 EXT_IP=$(echo "$OUTPUT" | jq -r '.external_gateway_info.external_fixed_ips[0].ip_address // empty')
                                 EXTERNAL_NET_ID=$(openstack network show external-net-sija -f json 2>/dev/null | jq -r '.id // empty')
-                                if [[ "$EXT_NET_ID" == "$EXTERNAL_NET_ID" && "$EXT_IP" == "172.20.10.${RANGE_START_INT}" ]]; then
+                                TARGET_IP_LAST_OCTET=$((RANGE_START_INT + 1))
+                                if [[ "$EXT_NET_ID" == "$EXTERNAL_NET_ID" && "$EXT_IP" == "172.20.10.${TARGET_IP_LAST_OCTET}" ]]; then
                                                 DATA["$KEY"]="OK"
                                 else
                                                 DATA["$KEY"]="Error: wrong external gateway or IP"
